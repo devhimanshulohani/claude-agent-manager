@@ -60,8 +60,6 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 
 ## `resume <id>`
 
-Resume a stopped/failed/unknown agent — re-spawns in the same branch with context.
-
 1. Look up agent in registry. Must have status `stopped`/`failed`/`unknown`. Reject if `running`/`completed`/`merged`.
 2. Verify branch exists (`git branch --list <branch>`). If not, say "Branch no longer exists. Use `/agent retry <id>` to start fresh."
 3. Read `.claude/agents/<id>-result.txt` if exists — extract any partial progress info.
@@ -86,44 +84,7 @@ You MUST work through these 5 phases in order. Do not skip phases.
 - Identify what remains to be done vs what is already done
 - Do NOT redo completed work — only pick up where it left off
 
-## Phase 2 — Plan Remaining Work
-- Break the remaining work into 3–8 ordered steps
-- For each step: what files change, what the change is, and any risks
-- Identify dependencies between steps (what must happen first)
-- If any step seems risky, note a fallback approach
-
-## Phase 3 — Implement
-- Execute steps in the order you planned
-- After each step, verify it didn't break anything (read back the file, check syntax)
-- If a step fails, try the fallback before moving on
-- Do NOT batch all changes blindly — work incrementally
-
-## Phase 4 — Verify
-- Auto-detect the build system and run the appropriate check:
-  - `package.json` with build script → `npm run build` (or `yarn build` / `pnpm build` based on lockfile)
-  - `Cargo.toml` → `cargo check`
-  - `go.mod` → `go build ./...`
-  - `pyproject.toml` / `setup.py` → `python -m py_compile` on changed files
-  - `Makefile` → `make`
-- If no recognizable build system, skip verification and note it in the summary
-- If the check fails, fix the issues and re-run until it passes
-
-## Phase 5 — Commit & Report
-- Commit with conventional format: `type(scope): subject`
-- CRITICAL — in the SAME bash block, after committing, write the result file to the ORIGINAL repo (not worktree):
-
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-COMMIT=$(git rev-parse --short HEAD)
-COMMIT_MSG=$(git log -1 --pretty=%s)
-FILES=$(git diff --name-only HEAD~1 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
-mkdir -p {repo_absolute_path}/.claude/agents
-cat > {repo_absolute_path}/.claude/agents/{id}-result.txt << RESULT_EOF
-branch: $BRANCH
-commit: $COMMIT
-commitMessage: $COMMIT_MSG
-filesChanged: $FILES
-summary: Resumed and completed task — {short description}
-RESULT_EOF
+{inline Phases 2–5 from "Agent Phases (shared)" section below}
 
 You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions.
 ```
@@ -132,8 +93,6 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 9. Tell user: agent `<id>` resumed on branch `<branch>`.
 
 ## `retry <id>`
-
-Re-spawn a failed agent with the same task but completely fresh context.
 
 1. Look up agent in registry. Must have status `stopped`/`failed`/`unknown`. Reject if `running`.
 2. Save the original `description` from the entry.
@@ -144,8 +103,6 @@ Re-spawn a failed agent with the same task but completely fresh context.
 
 ## `diff <id>`
 
-Quick inline diff preview of an agent's changes.
-
 1. Look up agent in registry (prefix match). If not found, show available IDs.
 2. Get the branch name. If no branch, say "No branch found for this agent."
 3. Run `git diff main...<branch> --stat` to show file-level summary.
@@ -153,8 +110,6 @@ Quick inline diff preview of an agent's changes.
 5. Display the stat summary first, then the full diff (truncate if extremely long — show first 200 lines and note if truncated).
 
 ## `logs <id>`
-
-Show a summarized activity log of what the agent did.
 
 1. Look up agent in registry (prefix match).
 2. Read `.claude/agents/<id>-result.txt` — display if exists.
@@ -169,20 +124,14 @@ Show a summarized activity log of what the agent did.
 
 ## `batch "task1" "task2" ...`
 
-Spawn multiple agents at once for parallel work.
-
 1. Parse arguments — split by quoted strings. Each quoted string is a separate task description.
-2. For each task:
-   - Generate a unique ID
-   - Add entry to registry with status `running`
+2. For each task: generate a unique ID, add entry to registry with status `running`
 3. Write registry once with all new entries.
 4. For each task, spawn using the standard **Spawn** flow (TaskCreate + Agent).
 5. Display table of all spawned agents: **ID | Description | Status**
 6. Tell user: "Spawned {N} agents. Use `/agent list` to monitor."
 
 ## `note <id> "text"`
-
-Attach a note to an agent entry.
 
 1. Look up agent in registry (prefix match).
 2. Parse the note text from arguments (everything after the ID).
@@ -191,8 +140,6 @@ Attach a note to an agent entry.
 5. When displaying agent details (in `switch`, `history`), show notes if present.
 
 ## `watch <id>`
-
-Poll a running agent and auto-merge when complete.
 
 1. Look up agent in registry. Must have status `running`. Reject otherwise.
 2. Enter a poll loop (max 30 iterations, 10s apart):
@@ -209,8 +156,6 @@ Poll a running agent and auto-merge when complete.
 
 ## `rebase <id>`
 
-Rebase an agent's branch onto latest main before merging.
-
 1. Look up agent in registry. Must have status `completed`/`unknown`. Reject if `running`.
 2. Verify branch exists. If not, say so.
 3. Run `git fetch origin main` (ignore errors if no remote).
@@ -220,16 +165,12 @@ Rebase an agent's branch onto latest main before merging.
 
 ## `export <id>`
 
-Export agent's changes as a patch file.
-
 1. Look up agent in registry (prefix match).
 2. Get branch name. If no branch, reject.
 3. Run `git format-patch main..<branch> --stdout > .claude/agents/<id>.patch`
 4. Tell user: "Patch exported to `.claude/agents/<id>.patch`. Apply with `git am < .claude/agents/<id>.patch`."
 
 ## `stats`
-
-Show lifetime agent statistics.
 
 1. Read registry.
 2. Calculate:
@@ -266,19 +207,33 @@ You MUST work through these 5 phases in order. Do not skip phases.
 - Map out what needs to change and where (list files + what changes in each)
 - Note any project-specific patterns (import style, naming, test conventions)
 
-## Phase 2 — Plan
+{inline Phases 2–5 from "Agent Phases (shared)" section below}
+
+You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions.
+```
+
+6. Update registry entry's `taskId` from TaskCreate. Write registry.
+7. Tell user: agent `<id>` spawned. Available commands: `list`, `switch`, `stop`, `merge`, `resume`, `retry`, `diff`, `logs`, `batch`, `note`, `watch`, `rebase`, `export`, `stats`, `history`, `clean`.
+
+---
+
+## Agent Phases (shared)
+
+Both Spawn and Resume prompts reference this block. Inline Phases 2–5 into the prompt after the command-specific Phase 1. Apply template conditionals (`{if verifyCommand}`, `{if commitFormat}`) if set.
+
+### Phase 2 — Plan
 - Break the task into 3–8 ordered implementation steps
 - For each step: what files change, what the change is, and any risks
 - Identify dependencies between steps (what must happen first)
 - If any step seems risky, note a fallback approach
 
-## Phase 3 — Implement
+### Phase 3 — Implement
 - Execute steps in the order you planned
 - After each step, verify it didn't break anything (read back the file, check syntax)
 - If a step fails, try the fallback before moving on
 - Do NOT batch all changes blindly — work incrementally
 
-## Phase 4 — Verify
+### Phase 4 — Verify
 {if verifyCommand}
 - Run the project-specific verify command: `{verifyCommand}`
 {else}
@@ -292,7 +247,7 @@ You MUST work through these 5 phases in order. Do not skip phases.
 {end}
 - If the check fails, fix the issues and re-run until it passes
 
-## Phase 5 — Commit & Report
+### Phase 5 — Commit & Report
 {if commitFormat}
 - Commit with format: `{commitFormat}`
 {else}
@@ -300,6 +255,7 @@ You MUST work through these 5 phases in order. Do not skip phases.
 {end}
 - CRITICAL — in the SAME bash block, after committing, write the result file to the ORIGINAL repo (not worktree):
 
+```
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 COMMIT=$(git rev-parse --short HEAD)
 COMMIT_MSG=$(git log -1 --pretty=%s)
@@ -312,9 +268,4 @@ commitMessage: $COMMIT_MSG
 filesChanged: $FILES
 summary: Completed task — {short description}
 RESULT_EOF
-
-You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions.
 ```
-
-6. Update registry entry's `taskId` from TaskCreate. Write registry.
-7. Tell user: agent `<id>` spawned. Available commands: `list`, `switch`, `stop`, `merge`, `resume`, `retry`, `diff`, `logs`, `batch`, `note`, `watch`, `rebase`, `export`, `stats`, `history`, `clean`.
