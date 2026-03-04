@@ -78,20 +78,39 @@ You are an autonomous agent RESUMING previous work. **Task:** {description} | **
 {git diff stat output}
 {partial result file contents if any}
 
-Instructions:
-1. You are in a worktree. First, checkout the existing branch: `git checkout {branch}` (or `git checkout -b {branch} origin/{branch}` if needed)
-2. Review what was already done — read changed files, understand the progress
-3. Continue from where it left off — do NOT redo completed work
-4. Make all remaining changes needed, then verify the build:
-   - Look for common project indicators and run the appropriate check:
-     - `package.json` with build script → `npm run build` (or `yarn build` / `pnpm build` based on lockfile)
-     - `Cargo.toml` → `cargo check`
-     - `go.mod` → `go build ./...`
-     - `pyproject.toml` / `setup.py` → `python -m py_compile` on changed files
-     - `Makefile` → `make`
-   - If no recognizable build system, skip verification and note it in the summary
-5. Commit with conventional format: `type(scope): subject`
-6. CRITICAL — after committing, write result file to the ORIGINAL repo (not worktree):
+You MUST work through these 5 phases in order. Do not skip phases.
+
+## Phase 1 — Analyze Previous Progress
+- Checkout the existing branch: `git checkout {branch}` (or `git checkout -b {branch} origin/{branch}` if needed)
+- Read the changed files and understand what was already completed
+- Identify what remains to be done vs what is already done
+- Do NOT redo completed work — only pick up where it left off
+
+## Phase 2 — Plan Remaining Work
+- Break the remaining work into 3–8 ordered steps
+- For each step: what files change, what the change is, and any risks
+- Identify dependencies between steps (what must happen first)
+- If any step seems risky, note a fallback approach
+
+## Phase 3 — Implement
+- Execute steps in the order you planned
+- After each step, verify it didn't break anything (read back the file, check syntax)
+- If a step fails, try the fallback before moving on
+- Do NOT batch all changes blindly — work incrementally
+
+## Phase 4 — Verify
+- Auto-detect the build system and run the appropriate check:
+  - `package.json` with build script → `npm run build` (or `yarn build` / `pnpm build` based on lockfile)
+  - `Cargo.toml` → `cargo check`
+  - `go.mod` → `go build ./...`
+  - `pyproject.toml` / `setup.py` → `python -m py_compile` on changed files
+  - `Makefile` → `make`
+- If no recognizable build system, skip verification and note it in the summary
+- If the check fails, fix the issues and re-run until it passes
+
+## Phase 5 — Commit & Report
+- Commit with conventional format: `type(scope): subject`
+- CRITICAL — in the SAME bash block, after committing, write the result file to the ORIGINAL repo (not worktree):
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 COMMIT=$(git rev-parse --short HEAD)
@@ -106,7 +125,7 @@ filesChanged: $FILES
 summary: Resumed and completed task — {short description}
 RESULT_EOF
 
-You are in an isolated worktree. Make changes freely.
+You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions.
 ```
 
 8. Update registry entry's `taskId`. Write registry.
@@ -238,19 +257,39 @@ Handles: plain task descriptions and `--template <name>` flag.
 ```
 You are an autonomous agent. **Task:** {description} | **Agent ID:** {id}
 
-Instructions:
-1. Work autonomously — no questions, make reasonable decisions
-2. Read and understand relevant code before changing it
-3. Make all changes needed, then verify the build:
-   - Look for common project indicators and run the appropriate check:
-     - `package.json` with build script → `npm run build` (or `yarn build` / `pnpm build` based on lockfile)
-     - `Cargo.toml` → `cargo check`
-     - `go.mod` → `go build ./...`
-     - `pyproject.toml` / `setup.py` → `python -m py_compile` on changed files
-     - `Makefile` → `make`
-   - If no recognizable build system, skip verification and note it in the summary
-4. Commit with conventional format: `type(scope): subject`
-5. CRITICAL — after committing, write result file to the ORIGINAL repo (not worktree):
+You MUST work through these 5 phases in order. Do not skip phases.
+
+## Phase 1 — Analyze
+- Read the project's README, CLAUDE.md, or equivalent to understand conventions
+- Identify the files and modules relevant to the task
+- Map out what needs to change and where (list files + what changes in each)
+- Note any project-specific patterns (import style, naming, test conventions)
+
+## Phase 2 — Plan
+- Break the task into 3–8 ordered implementation steps
+- For each step: what files change, what the change is, and any risks
+- Identify dependencies between steps (what must happen first)
+- If any step seems risky, note a fallback approach
+
+## Phase 3 — Implement
+- Execute steps in the order you planned
+- After each step, verify it didn't break anything (read back the file, check syntax)
+- If a step fails, try the fallback before moving on
+- Do NOT batch all changes blindly — work incrementally
+
+## Phase 4 — Verify
+- Auto-detect the build system and run the appropriate check:
+  - `package.json` with build script → `npm run build` (or `yarn build` / `pnpm build` based on lockfile)
+  - `Cargo.toml` → `cargo check`
+  - `go.mod` → `go build ./...`
+  - `pyproject.toml` / `setup.py` → `python -m py_compile` on changed files
+  - `Makefile` → `make`
+- If no recognizable build system, skip verification and note it in the summary
+- If the check fails, fix the issues and re-run until it passes
+
+## Phase 5 — Commit & Report
+- Commit with conventional format: `type(scope): subject`
+- CRITICAL — in the SAME bash block, after committing, write the result file to the ORIGINAL repo (not worktree):
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 COMMIT=$(git rev-parse --short HEAD)
@@ -265,7 +304,7 @@ filesChanged: $FILES
 summary: Completed task — {short description}
 RESULT_EOF
 
-You are in an isolated worktree. Make changes freely.
+You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions.
 ```
 
 6. Update registry entry's `taskId` from TaskCreate. Write registry.
