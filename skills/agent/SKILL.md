@@ -1,6 +1,8 @@
 ---
+name: agent
 description: Spawn and manage autonomous background agents
 argument-hint: "task description" | list | switch <id> | stop <id> | history | clean | merge <id>
+disable-model-invocation: true
 allowed-tools: Agent, Bash, Read, Edit, Write, Glob, Grep, TaskOutput, TaskStop, TaskCreate, TaskUpdate, TaskList
 ---
 
