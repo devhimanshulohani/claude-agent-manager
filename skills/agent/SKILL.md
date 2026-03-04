@@ -1,18 +1,21 @@
 ---
 name: agent
 description: Spawn and manage autonomous background agents
-argument-hint: "task description" | list | switch <id> | stop <id> | history | clean | merge <id>
+argument-hint: "task" | list | switch | stop | merge | resume | retry | diff | logs | batch | note | watch | rebase | export | stats | history | clean <id>
 disable-model-invocation: true
 allowed-tools: Agent, Bash, Read, Edit, Write, Glob, Grep, TaskOutput, TaskStop, TaskCreate, TaskUpdate, TaskList
 ---
 
-# Agent Manager v2
+# Agent Manager v3
 
 Parse `$ARGUMENTS` and execute the matching command below. Persistent state lives in `.claude/agents/registry.json` (source of truth). Task system is for live monitoring only.
 
 **Registry:** Read `.claude/agents/registry.json` — if missing/corrupt, default to `{ "version": 1, "agents": [] }`. Always `mkdir -p .claude/agents` before writing.
 **Agent ID:** Generate via `date +%s | shasum | head -c 6` (6-char hex).
 **Age format:** `<N>m ago` / `<N>h ago` / `<N>d ago` relative to `createdAt`.
+**Templates dir:** `.claude/agents/templates/` — JSON files with `{ name, description, verifyCommand, commitFormat }`.
+
+---
 
 ## `list`
 
@@ -53,12 +56,177 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 2. Verify branch exists (`git branch --list <branch>`). If not, say so.
 3. Run `git merge <branch>`. On success → update status to `merged`, write registry, suggest `/agent clean`. On conflict → tell user, suggest `git merge --abort`.
 
+---
+
+## `resume <id>`
+
+Resume a stopped/failed/unknown agent — re-spawns in the same branch with context.
+
+1. Look up agent in registry. Must have status `stopped`/`failed`/`unknown`. Reject if `running`/`completed`/`merged`.
+2. Verify branch exists (`git branch --list <branch>`). If not, say "Branch no longer exists. Use `/agent retry <id>` to start fresh."
+3. Read `.claude/agents/<id>-result.txt` if exists — extract any partial progress info.
+4. Get the list of changes already made: `git log main..<branch> --oneline` and `git diff main..<branch> --stat`
+5. Update registry: status → `running`, clear `completedAt`. Write registry.
+6. `TaskCreate` with subject: `Resume: <original description>` (60 chars max), activeForm (present continuous).
+7. Spawn `Agent` with `subagent_type: "general-purpose"`, `run_in_background: true`, `isolation: "worktree"`, prompt:
+
+```
+You are an autonomous agent RESUMING previous work. **Task:** {description} | **Agent ID:** {id}
+
+**Previous progress on branch `{branch}`:**
+{git log output}
+{git diff stat output}
+{partial result file contents if any}
+
+Instructions:
+1. You are in a worktree. First, checkout the existing branch: `git checkout {branch}` (or `git checkout -b {branch} origin/{branch}` if needed)
+2. Review what was already done — read changed files, understand the progress
+3. Continue from where it left off — do NOT redo completed work
+4. Make all remaining changes needed, then verify: TypeScript → `npm run build`, Rust → `cd src-tauri && cargo check`
+5. Commit with conventional format: `type(scope): subject`
+6. CRITICAL — after committing, write result file to the ORIGINAL repo (not worktree):
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+COMMIT=$(git rev-parse --short HEAD)
+COMMIT_MSG=$(git log -1 --pretty=%s)
+FILES=$(git diff --name-only HEAD~1 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+mkdir -p {repo_absolute_path}/.claude/agents
+cat > {repo_absolute_path}/.claude/agents/{id}-result.txt << RESULT_EOF
+branch: $BRANCH
+commit: $COMMIT
+commitMessage: $COMMIT_MSG
+filesChanged: $FILES
+summary: Resumed and completed task — {short description}
+RESULT_EOF
+
+You are in an isolated worktree. Make changes freely.
+```
+
+8. Update registry entry's `taskId`. Write registry.
+9. Tell user: agent `<id>` resumed on branch `<branch>`.
+
+## `retry <id>`
+
+Re-spawn a failed agent with the same task but completely fresh context.
+
+1. Look up agent in registry. Must have status `stopped`/`failed`/`unknown`. Reject if `running`.
+2. Save the original `description` from the entry.
+3. Generate a NEW agent ID.
+4. Add new entry to registry with original description, status `running`. Write registry.
+5. Spawn using the standard **Spawn** flow below with the original description.
+6. Tell user: "Retrying as new agent `<new_id>` (original: `<old_id>`). Original agent preserved in history."
+
+## `diff <id>`
+
+Quick inline diff preview of an agent's changes.
+
+1. Look up agent in registry (prefix match). If not found, show available IDs.
+2. Get the branch name. If no branch, say "No branch found for this agent."
+3. Run `git diff main...<branch> --stat` to show file-level summary.
+4. Run `git diff main...<branch>` to show full diff.
+5. Display the stat summary first, then the full diff (truncate if extremely long — show first 200 lines and note if truncated).
+
+## `logs <id>`
+
+Show a summarized activity log of what the agent did.
+
+1. Look up agent in registry (prefix match).
+2. Read `.claude/agents/<id>-result.txt` — display if exists.
+3. Find the agent's subagent transcript: search for files matching `~/.claude/projects/*/subagents/agent-*.jsonl` using Glob. Look for the transcript that corresponds to the agent's `taskId`.
+4. If transcript found, read it and extract a summary:
+   - List tools used (Read, Write, Edit, Bash, etc.) with counts
+   - Show files read/modified
+   - Show bash commands executed
+   - Show any errors encountered
+5. If no transcript found, check git log on the branch: `git log main..<branch> --oneline --stat`
+6. Display: **Agent ID** | **Status** | **Description** | **Activity Summary** | **Files Touched** | **Errors (if any)**
+
+## `batch "task1" "task2" ...`
+
+Spawn multiple agents at once for parallel work.
+
+1. Parse arguments — split by quoted strings. Each quoted string is a separate task description.
+2. For each task:
+   - Generate a unique ID
+   - Add entry to registry with status `running`
+3. Write registry once with all new entries.
+4. For each task, spawn using the standard **Spawn** flow (TaskCreate + Agent).
+5. Display table of all spawned agents: **ID | Description | Status**
+6. Tell user: "Spawned {N} agents. Use `/agent list` to monitor."
+
+## `note <id> "text"`
+
+Attach a note to an agent entry.
+
+1. Look up agent in registry (prefix match).
+2. Parse the note text from arguments (everything after the ID).
+3. Add/append to a `notes` array in the registry entry: `{ text, timestamp: <ISO now> }`.
+4. Write registry. Confirm: "Note added to agent `<id>`."
+5. When displaying agent details (in `switch`, `history`), show notes if present.
+
+## `watch <id>`
+
+Poll a running agent and auto-merge when complete.
+
+1. Look up agent in registry. Must have status `running`. Reject otherwise.
+2. Enter a poll loop (max 30 iterations, 10s apart):
+   - Try `TaskOutput` with `block: true, timeout: 10000`
+   - If completed → parse result file, update registry to `completed`
+   - Run `git diff main...<branch> --stat` to preview changes
+   - Ask user: "Agent completed. Changes: {stat summary}. Merge now? (merging automatically in 10s...)"
+   - Wait 10s, then run merge: `git merge <branch>`
+   - Update status to `merged`. Write registry.
+   - Tell user: "Agent `<id>` merged. Run `/agent clean` to tidy up."
+   - Break loop.
+   - If still running, continue polling.
+3. If max iterations reached, say: "Agent still running after 5 minutes. Use `/agent watch <id>` again or `/agent list` to check."
+
+## `rebase <id>`
+
+Rebase an agent's branch onto latest main before merging.
+
+1. Look up agent in registry. Must have status `completed`/`unknown`. Reject if `running`.
+2. Verify branch exists. If not, say so.
+3. Run `git fetch origin main` (ignore errors if no remote).
+4. Run `git rebase main <branch>`.
+5. On success → tell user: "Branch `<branch>` rebased onto main. Ready to merge with `/agent merge <id>`."
+6. On conflict → tell user the conflicting files, suggest `git rebase --abort` or manual resolution.
+
+## `export <id>`
+
+Export agent's changes as a patch file.
+
+1. Look up agent in registry (prefix match).
+2. Get branch name. If no branch, reject.
+3. Run `git format-patch main..<branch> --stdout > .claude/agents/<id>.patch`
+4. Tell user: "Patch exported to `.claude/agents/<id>.patch`. Apply with `git am < .claude/agents/<id>.patch`."
+
+## `stats`
+
+Show lifetime agent statistics.
+
+1. Read registry.
+2. Calculate:
+   - **Total spawned:** count of all agents
+   - **By status:** count per status (running/completed/stopped/failed/merged/unknown)
+   - **Success rate:** completed+merged / total (exclude running)
+   - **Most active day:** group by date of `createdAt`, find max
+   - **Avg files changed:** average length of `filesChanged` arrays (for completed/merged)
+3. Display as a formatted summary panel.
+
+---
+
 ## Spawn (default — no command match)
 
-1. Generate ID, read registry
-2. `TaskCreate` with subject (60 chars max), description, activeForm (present continuous)
-3. Add entry to registry: `{ id, taskId: null, description, status: "running", branch: null, worktreePath: null, commit: null, commitMessage: null, createdAt: <ISO now>, completedAt: null, filesChanged: [] }`. Write registry.
-4. Spawn `Agent` with `subagent_type: "general-purpose"`, `run_in_background: true`, `isolation: "worktree"`, prompt:
+Handles: plain task descriptions and `--template <name>` flag.
+
+1. Check if arguments contain `--template <name>`:
+   - If yes, read `.claude/agents/templates/<name>.json`. If not found, list available templates. Use template's description prefix + remaining args as description, and template's `verifyCommand`/`commitFormat` in the agent prompt.
+   - If no, use full `$ARGUMENTS` as the task description.
+2. Generate ID, read registry.
+3. `TaskCreate` with subject (60 chars max), description, activeForm (present continuous).
+4. Add entry to registry: `{ id, taskId: null, description, status: "running", branch: null, worktreePath: null, commit: null, commitMessage: null, createdAt: <ISO now>, completedAt: null, filesChanged: [], notes: [] }`. Write registry.
+5. Spawn `Agent` with `subagent_type: "general-purpose"`, `run_in_background: true`, `isolation: "worktree"`, prompt:
 
 ```
 You are an autonomous agent. **Task:** {description} | **Agent ID:** {id}
@@ -86,5 +254,5 @@ RESULT_EOF
 You are in an isolated worktree. Make changes freely.
 ```
 
-5. Update registry entry's `taskId` from TaskCreate. Write registry.
-6. Tell user: agent `<id>` spawned. Commands: `/agent list`, `/agent switch <id>`, `/agent stop <id>`, `/agent merge <id>`
+6. Update registry entry's `taskId` from TaskCreate. Write registry.
+7. Tell user: agent `<id>` spawned. Available commands: `list`, `switch`, `stop`, `merge`, `resume`, `retry`, `diff`, `logs`, `batch`, `note`, `watch`, `rebase`, `export`, `stats`, `history`, `clean`.
