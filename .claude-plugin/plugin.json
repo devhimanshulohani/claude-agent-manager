@@ -1,0 +1,9 @@
+{
+  "name": "agent-manager",
+  "description": "Spawn and manage autonomous background agents with persistent state across sessions",
+  "version": "1.0.0",
+  "author": { "name": "Himanshu Lohani" },
+  "repository": "https://github.com/devhimanshulohani/claude-agent-manager",
+  "license": "MIT",
+  "keywords": ["agents", "background", "worktree", "autonomous", "persistent"]
+}
