@@ -11,17 +11,14 @@ A Claude Code plugin for spawning and managing autonomous background agents with
 
 ## Install
 
-### Option A: Local plugin directory
+```bash
+claude plugin install agent-manager
+```
+
+Or test locally:
 
 ```bash
 claude --plugin-dir /path/to/claude-agent-manager
-```
-
-### Option B: Clone and reference
-
-```bash
-git clone https://github.com/devhimanshulohani/claude-agent-manager.git
-claude --plugin-dir ./claude-agent-manager
 ```
 
 ## Commands
