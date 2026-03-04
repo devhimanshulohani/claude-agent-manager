@@ -11,7 +11,7 @@ allowed-tools: Agent, AskUserQuestion, Bash, Read, Edit, Write, Glob, Grep, Task
 Parse `$ARGUMENTS` and execute the matching command below. Persistent state lives in `.claude/agents/registry.json` (source of truth). Task system is for live monitoring only.
 
 **Registry:** Read `.claude/agents/registry.json` — if missing/corrupt, default to `{ "version": 1, "agents": [] }`. Always `mkdir -p .claude/agents` before writing.
-**Agent ID:** Generate via `date +%s | shasum | head -c 6` (6-char hex).
+**Agent ID:** Generate via `echo "$(date +%s%N)$RANDOM" | shasum | head -c 6` (6-char hex). The `%N`+`$RANDOM` ensures uniqueness even when called multiple times in the same second (e.g., `batch`).
 **Age format:** `<N>m ago` / `<N>h ago` / `<N>d ago` relative to `createdAt`.
 **Templates dir:** `.claude/agents/templates/` — JSON files with required fields `{ name, description }` and optional `{ verifyCommand, commitFormat }`. `verifyCommand` overrides Phase 4 auto-detection; `commitFormat` overrides the default conventional commit format.
 
@@ -32,14 +32,14 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 ## `switch <id>`
 
 1. Look up agent by ID in registry (prefix match if unambiguous). If not found, show available IDs.
-2. If `running` with live taskId → `TaskOutput` with `block: false, timeout: 5000`
+2. If `running` and `taskId` is not null → `TaskOutput` with `block: false, timeout: 5000`. If `running` with null `taskId` → say "Agent is running but has no task handle (spawn may have partially failed). Try `/agent list` to refresh or `/agent stop <id>`."
 3. Otherwise → read `.claude/agents/<id>-result.txt` for summary. If file missing, say "No result file yet. Agent may still be in progress or failed without output."
 4. Show: status, description, branch. If branch exists, suggest `git diff main...<branch>` and `/agent diff <id>`. If status is `completed`/`unknown`/`stopped`, also suggest `/agent merge <id>`. If `running`, suggest `/agent watch <id>` or `/agent stop <id>`.
 
 ## `stop <id>`
 
 1. Look up agent in registry. If not found, say so. If status is not `running`, reject: "Agent `<id>` is `<status>`, not running."
-2. Try `TaskStop` with `task_id` (ignore errors if gone)
+2. If `taskId` is not null, try `TaskStop` with `task_id` (ignore errors if gone). If `taskId` is null, skip — just update status.
 3. Update registry: status → `stopped`, set `completedAt`. Write registry. Confirm.
 
 ## `history`
@@ -64,7 +64,7 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 ## `resume <id>`
 
 1. Look up agent in registry. Must have status `stopped`/`failed`/`unknown`. Reject if `running`/`completed`/`merged`.
-2. Verify branch exists (`git branch --list <branch>`). If not, say "Branch no longer exists. Use `/agent retry <id>` to start fresh."
+2. If `branch` is null, say "No branch to resume from. Use `/agent retry <id>` to start fresh." Otherwise, verify branch exists (`git branch --list <branch>`). If not, say "Branch no longer exists. Use `/agent retry <id>` to start fresh."
 3. Read `.claude/agents/<id>-result.txt` if exists — extract any partial progress info.
 4. Get the list of changes already made: `git log main..<branch> --oneline` and `git diff main..<branch> --stat`
 5. Update registry: status → `running`, clear `completedAt`. Write registry.
@@ -184,7 +184,7 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 ## `note <id> "text"`
 
 1. Look up agent in registry (prefix match).
-2. Parse the note text from arguments (everything after the ID).
+2. Parse the note text from arguments (everything after the ID). If no text provided, reject: "Usage: `/agent note <id> \"your note text\"`"
 3. Add/append to a `notes` array in the registry entry: `{ text, timestamp: <ISO now> }`.
 4. Write registry. Confirm: "Note added to agent `<id>`."
 5. When displaying agent details (in `switch`, `history`), show notes if present.
@@ -194,10 +194,10 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 1. Look up agent in registry. Must have status `running`. Reject otherwise.
 2. Enter a poll loop (max 30 iterations, 10s apart):
    - Try `TaskOutput` with `block: true, timeout: 10000`
-   - If completed → parse result file, update registry to `completed`
-   - Run `git diff main...<branch> --stat` to preview changes
+   - If completed → parse result file (if missing, update registry to `completed` with no file details and note "Result file not found — agent may have failed to write it")
+   - If branch is not null, run `git diff main...<branch> --stat` to preview changes. If branch is null, say "Agent completed but no branch was recorded."
    - Show the diff summary to the user
-   - Ask user explicitly: "Agent completed. Merge branch `<branch>` into current branch?" — wait for confirmation. Do NOT auto-merge.
+   - Ask user explicitly: "Agent completed. Merge branch `<branch>` into current branch?" — wait for confirmation. Do NOT auto-merge. (Skip merge prompt if branch is null.)
    - If user confirms → run `git merge <branch>`, update status to `merged`, write registry, suggest `/agent clean`
    - If user declines → tell user: "Skipped merge. Use `/agent merge <id>` later or `/agent diff <id>` to review."
    - Break loop.
@@ -227,7 +227,7 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 2. Calculate:
    - **Total spawned:** count of all agents
    - **By status:** count per status (running/completed/stopped/failed/merged/unknown)
-   - **Success rate:** completed+merged / total (exclude running)
+   - **Success rate:** completed+merged / total (exclude running). If no non-running agents, show "N/A"
    - **Most active day:** group by date of `createdAt`, find max
    - **Avg files changed:** average length of `filesChanged` arrays (for completed/merged)
 3. Display as a formatted summary panel.
