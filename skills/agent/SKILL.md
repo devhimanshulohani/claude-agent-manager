@@ -81,7 +81,7 @@ You are an autonomous agent RESUMING previous work. **Task:** {description} | **
 You MUST work through these 5 phases in order. Do not skip phases.
 
 ## Phase 1 — Analyze Previous Progress
-- Checkout the existing branch: `git checkout {branch}` (or `git checkout -b {branch} origin/{branch}` if needed)
+- Fetch and checkout the existing branch: `git fetch origin {branch} 2>/dev/null; git checkout {branch} 2>/dev/null || git checkout -b {branch} origin/{branch}`
 - Read the changed files and understand what was already completed
 - Identify what remains to be done vs what is already done
 - Do NOT redo completed work — only pick up where it left off
@@ -247,12 +247,13 @@ Show lifetime agent statistics.
 Handles: plain task descriptions and `--template <name>` flag.
 
 1. Check if arguments contain `--template <name>`:
-   - If yes, read `.claude/agents/templates/<name>.json`. If not found, list available templates. Use template's description prefix + remaining args as description, and template's `verifyCommand`/`commitFormat` in the agent prompt.
-   - If no, use full `$ARGUMENTS` as the task description.
+   - If yes, read `.claude/agents/templates/<name>.json`. If not found, list available templates. Use template's description prefix + remaining args as description. Store `verifyCommand` and `commitFormat` from the template for injection into the prompt.
+   - If no, use full `$ARGUMENTS` as the task description. Set `verifyCommand` and `commitFormat` to `null`.
 2. Generate ID, read registry.
 3. `TaskCreate` with subject (60 chars max), description, activeForm (present continuous).
 4. Add entry to registry: `{ id, taskId: null, description, status: "running", branch: null, worktreePath: null, commit: null, commitMessage: null, createdAt: <ISO now>, completedAt: null, filesChanged: [], notes: [] }`. Write registry.
-5. Spawn `Agent` with `subagent_type: "general-purpose"`, `run_in_background: true`, `isolation: "worktree"`, prompt:
+5. Spawn `Agent` with `subagent_type: "general-purpose"`, `run_in_background: true`, `isolation: "worktree"`, prompt below.
+   **Template handling:** If `verifyCommand` is set, include only the `{if verifyCommand}` block in Phase 4. If `commitFormat` is set, include only the `{if commitFormat}` block in Phase 5. Otherwise include the `{else}` blocks. Remove the `{if}`/`{else}`/`{end}` markers from the final prompt.
 
 ```
 You are an autonomous agent. **Task:** {description} | **Agent ID:** {id}
@@ -278,6 +279,9 @@ You MUST work through these 5 phases in order. Do not skip phases.
 - Do NOT batch all changes blindly — work incrementally
 
 ## Phase 4 — Verify
+{if verifyCommand}
+- Run the project-specific verify command: `{verifyCommand}`
+{else}
 - Auto-detect the build system and run the appropriate check:
   - `package.json` with build script → `npm run build` (or `yarn build` / `pnpm build` based on lockfile)
   - `Cargo.toml` → `cargo check`
@@ -285,10 +289,15 @@ You MUST work through these 5 phases in order. Do not skip phases.
   - `pyproject.toml` / `setup.py` → `python -m py_compile` on changed files
   - `Makefile` → `make`
 - If no recognizable build system, skip verification and note it in the summary
+{end}
 - If the check fails, fix the issues and re-run until it passes
 
 ## Phase 5 — Commit & Report
+{if commitFormat}
+- Commit with format: `{commitFormat}`
+{else}
 - Commit with conventional format: `type(scope): subject`
+{end}
 - CRITICAL — in the SAME bash block, after committing, write the result file to the ORIGINAL repo (not worktree):
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
