@@ -1,6 +1,6 @@
 ---
 name: agent
-description: Spawn and manage autonomous background agents
+description: Spawn and manage autonomous background agents with persistent state across sessions
 argument-hint: '"task" | list | switch <id> | stop <id> | merge <id> | resume <id> | retry <id> | diff <id> | logs <id> | batch | note <id> | watch <id> | rebase <id> | export <id> | stats | history | clean'
 disable-model-invocation: true
 allowed-tools: Agent, AskUserQuestion, Bash, Read, Edit, Write, Glob, Grep, TaskOutput, TaskStop, TaskCreate, TaskUpdate, TaskList
@@ -21,8 +21,11 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 
 1. Read registry. If empty, say "No agents found. Spawn one with: `/agent "your task"`"
 2. For each agent with status `running`:
+   - If `taskId` is null → mark as `unknown`, continue
    - Try `TaskOutput` with `block: false, timeout: 3000` using stored `taskId`
    - If task found & completed → check `.claude/agents/<id>-result.txt`, parse it, update entry to `completed` with branch/commit/files/completedAt
+   - If task found & still running → leave status as `running`, continue
+   - If task found & errored → mark as `failed`
    - If task NOT found (new session) → check result file. If exists, parse & mark `completed`. If not: if `branch` is null → `unknown`. Otherwise check `git branch --list <branch>` — branch exists → `unknown`, no branch → `failed`
 3. Write updated registry. Display table: **ID | Status | Description | Branch | Age**
 
@@ -30,12 +33,12 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 
 1. Look up agent by ID in registry (prefix match if unambiguous). If not found, show available IDs.
 2. If `running` with live taskId → `TaskOutput` with `block: false, timeout: 5000`
-3. Otherwise → read `.claude/agents/<id>-result.txt` for summary
-4. Show: status, description, branch, and suggest `git diff main...<branch>` and `/agent merge <id>`
+3. Otherwise → read `.claude/agents/<id>-result.txt` for summary. If file missing, say "No result file yet. Agent may still be in progress or failed without output."
+4. Show: status, description, branch. If branch exists, suggest `git diff main...<branch>` and `/agent diff <id>`. If status is `completed`/`unknown`/`stopped`, also suggest `/agent merge <id>`. If `running`, suggest `/agent watch <id>` or `/agent stop <id>`.
 
 ## `stop <id>`
 
-1. Look up agent in registry. If not found, say so.
+1. Look up agent in registry. If not found, say so. If status is not `running`, reject: "Agent `<id>` is `<status>`, not running."
 2. Try `TaskStop` with `task_id` (ignore errors if gone)
 3. Update registry: status → `stopped`, set `completedAt`. Write registry. Confirm.
 
@@ -47,7 +50,7 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 ## `clean`
 
 1. Read registry. Filter agents with status `completed`/`stopped`/`merged`/`failed`/`unknown`
-2. For each: delete `.claude/agents/<id>-result.txt`, delete branch if `merged` (`git branch -d <branch>`). Ignore errors. (Worktrees from `isolation: "worktree"` are auto-managed by Claude Code.)
+2. For each: delete `.claude/agents/<id>-result.txt` and `.claude/agents/<id>.patch` (if exists), delete branch if `merged` (`git branch -d <branch>`). Ignore errors. (Worktrees from `isolation: "worktree"` are auto-managed by Claude Code.)
 3. Remove entries from registry, write it. Report: "Cleaned up N agent(s). M still running."
 
 ## `merge <id>`
@@ -97,6 +100,9 @@ You MUST work through these 5 phases in order. Do not skip phases.
 - Do NOT batch all changes blindly — work incrementally
 
 ## Phase 4 — Verify
+{if verifyCommand}
+- Run the project-specific verify command: `{verifyCommand}`
+{else}
 - Auto-detect the build system and run the appropriate check:
   - `package.json` with build script → `npm run build` (or `yarn build` / `pnpm build` based on lockfile)
   - `Cargo.toml` → `cargo check`
@@ -104,10 +110,15 @@ You MUST work through these 5 phases in order. Do not skip phases.
   - `pyproject.toml` / `setup.py` → `python -m py_compile` on changed files
   - `Makefile` → `make`
 - If no recognizable build system, skip verification and note it in the summary
+{end}
 - If the check fails, fix the issues and re-run until it passes
 
 ## Phase 5 — Commit & Report
+{if commitFormat}
+- Commit with format: `{commitFormat}`
+{else}
 - Commit with conventional format: `type(scope): subject`
+{end}
 - CRITICAL — in the SAME bash block, after committing, write the result file to the ORIGINAL repo (not worktree):
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -126,16 +137,18 @@ RESULT_EOF
 You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions.
 ```
 
+**Template handling (same as Spawn):** Read `verifyCommand` and `commitFormat` from the registry entry. If set, include only the `{if ...}` block; otherwise include the `{else}` block. Remove `{if}`/`{else}`/`{end}` markers from the final prompt.
+
 8. Update registry entry's `taskId` from the background Agent task. Write registry.
 9. Tell user: agent `<id>` resumed on branch `<branch>`.
 
 ## `retry <id>`
 
 1. Look up agent in registry. Must have status `stopped`/`failed`/`unknown`. Reject otherwise.
-2. Save the original `description` from the entry.
+2. Save the original `description`, `verifyCommand`, and `commitFormat` from the entry.
 3. Generate a NEW agent ID.
-4. Add new entry to registry with original description, status `running`. Write registry.
-5. Spawn using the standard **Spawn** flow below with the original description.
+4. Add new entry to registry with original description, `verifyCommand`, `commitFormat`, status `running`. Write registry.
+5. Spawn using the standard **Spawn** flow below with the original description (pass through `verifyCommand`/`commitFormat` instead of setting to null).
 6. Tell user: "Retrying as new agent `<new_id>` (original: `<old_id>`). Original agent preserved in history."
 
 ## `diff <id>`
@@ -156,7 +169,7 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
    - Show files read/modified
    - Show bash commands executed
    - Show any errors encountered
-5. If no transcript found, check git log on the branch: `git log main..<branch> --oneline --stat`
+5. If no transcript found and branch is not null, check git log on the branch: `git log main..<branch> --oneline --stat`. If branch is null, say "No branch or transcript available."
 6. Display: **Agent ID** | **Status** | **Description** | **Activity Summary** | **Files Touched** | **Errors (if any)**
 
 ## `batch "task1" "task2" ...`
@@ -193,7 +206,7 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 
 ## `rebase <id>`
 
-1. Look up agent in registry. Must have status `completed`/`unknown`. Reject if `running`.
+1. Look up agent in registry. Must have status `completed`/`unknown`/`stopped`. Reject if `running`/`merged`/`failed` with reason.
 2. Verify branch exists. If not, say so.
 3. Check working tree is clean (`git status --porcelain`). If dirty, reject: "Working tree has uncommitted changes. Commit or stash first."
 4. Run `git fetch origin main` (ignore errors if no remote).
@@ -230,7 +243,7 @@ Handles: plain task descriptions and `--template <name>` flag.
    - If no, use full `$ARGUMENTS` as the task description. Set `verifyCommand` and `commitFormat` to `null`.
 2. Generate ID, read registry.
 3. `TaskCreate` with subject (60 chars max), description, activeForm (present continuous).
-4. Add entry to registry: `{ id, taskId: null, description, status: "running", branch: null, commit: null, commitMessage: null, createdAt: <ISO now>, completedAt: null, filesChanged: [], notes: [] }`. Write registry.
+4. Add entry to registry: `{ id, taskId: null, description, status: "running", branch: null, commit: null, commitMessage: null, createdAt: <ISO now>, completedAt: null, filesChanged: [], notes: [], verifyCommand: null, commitFormat: null }`. Write registry.
 5. Spawn `Agent` with `subagent_type: "general-purpose"`, `run_in_background: true`, `isolation: "worktree"`, prompt below.
    **Template handling:** If `verifyCommand` is set, include only the `{if verifyCommand}` block in Phase 4. If `commitFormat` is set, include only the `{if commitFormat}` block in Phase 5. Otherwise include the `{else}` blocks. Remove the `{if}`/`{else}`/`{end}` markers from the final prompt.
 
