@@ -58,7 +58,7 @@ claude --plugin-dir /path/to/claude-agent-manager
 |---------|-------------|
 | `/agent-manager:agent batch "task1" "task2"` | Spawn multiple agents in parallel |
 | `/agent-manager:agent note <id> "text"` | Attach a note to an agent |
-| `/agent-manager:agent watch <id>` | Poll a running agent and auto-merge on completion |
+| `/agent-manager:agent watch <id>` | Poll a running agent until completion |
 | `/agent-manager:agent rebase <id>` | Rebase agent branch onto latest main |
 | `/agent-manager:agent export <id>` | Export changes as a `.patch` file |
 
