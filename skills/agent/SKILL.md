@@ -84,7 +84,44 @@ You MUST work through these 5 phases in order. Do not skip phases.
 - Identify what remains to be done vs what is already done
 - Do NOT redo completed work — only pick up where it left off
 
-{inline Phases 2–5 from "Agent Phases (shared)" section below}
+## Phase 2 — Plan
+- Break the task into 3–8 ordered implementation steps
+- For each step: what files change, what the change is, and any risks
+- Identify dependencies between steps (what must happen first)
+- If any step seems risky, note a fallback approach
+
+## Phase 3 — Implement
+- Execute steps in the order you planned
+- After each step, verify it didn't break anything (read back the file, check syntax)
+- If a step fails, try the fallback before moving on
+- Do NOT batch all changes blindly — work incrementally
+
+## Phase 4 — Verify
+- Auto-detect the build system and run the appropriate check:
+  - `package.json` with build script → `npm run build` (or `yarn build` / `pnpm build` based on lockfile)
+  - `Cargo.toml` → `cargo check`
+  - `go.mod` → `go build ./...`
+  - `pyproject.toml` / `setup.py` → `python -m py_compile` on changed files
+  - `Makefile` → `make`
+- If no recognizable build system, skip verification and note it in the summary
+- If the check fails, fix the issues and re-run until it passes
+
+## Phase 5 — Commit & Report
+- Commit with conventional format: `type(scope): subject`
+- CRITICAL — in the SAME bash block, after committing, write the result file to the ORIGINAL repo (not worktree):
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+COMMIT=$(git rev-parse --short HEAD)
+COMMIT_MSG=$(git log -1 --pretty=%s)
+FILES=$(git diff --name-only HEAD~1 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+mkdir -p {repo_absolute_path}/.claude/agents
+cat > {repo_absolute_path}/.claude/agents/{id}-result.txt << RESULT_EOF
+branch: $BRANCH
+commit: $COMMIT
+commitMessage: $COMMIT_MSG
+filesChanged: $FILES
+summary: Resumed and completed task — {short description}
+RESULT_EOF
 
 You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions.
 ```
@@ -207,33 +244,19 @@ You MUST work through these 5 phases in order. Do not skip phases.
 - Map out what needs to change and where (list files + what changes in each)
 - Note any project-specific patterns (import style, naming, test conventions)
 
-{inline Phases 2–5 from "Agent Phases (shared)" section below}
-
-You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions.
-```
-
-6. Update registry entry's `taskId` from TaskCreate. Write registry.
-7. Tell user: agent `<id>` spawned. Available commands: `list`, `switch`, `stop`, `merge`, `resume`, `retry`, `diff`, `logs`, `batch`, `note`, `watch`, `rebase`, `export`, `stats`, `history`, `clean`.
-
----
-
-## Agent Phases (shared)
-
-Both Spawn and Resume prompts reference this block. Inline Phases 2–5 into the prompt after the command-specific Phase 1. Apply template conditionals (`{if verifyCommand}`, `{if commitFormat}`) if set.
-
-### Phase 2 — Plan
+## Phase 2 — Plan
 - Break the task into 3–8 ordered implementation steps
 - For each step: what files change, what the change is, and any risks
 - Identify dependencies between steps (what must happen first)
 - If any step seems risky, note a fallback approach
 
-### Phase 3 — Implement
+## Phase 3 — Implement
 - Execute steps in the order you planned
 - After each step, verify it didn't break anything (read back the file, check syntax)
 - If a step fails, try the fallback before moving on
 - Do NOT batch all changes blindly — work incrementally
 
-### Phase 4 — Verify
+## Phase 4 — Verify
 {if verifyCommand}
 - Run the project-specific verify command: `{verifyCommand}`
 {else}
@@ -247,7 +270,7 @@ Both Spawn and Resume prompts reference this block. Inline Phases 2–5 into the
 {end}
 - If the check fails, fix the issues and re-run until it passes
 
-### Phase 5 — Commit & Report
+## Phase 5 — Commit & Report
 {if commitFormat}
 - Commit with format: `{commitFormat}`
 {else}
@@ -255,7 +278,6 @@ Both Spawn and Resume prompts reference this block. Inline Phases 2–5 into the
 {end}
 - CRITICAL — in the SAME bash block, after committing, write the result file to the ORIGINAL repo (not worktree):
 
-```
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 COMMIT=$(git rev-parse --short HEAD)
 COMMIT_MSG=$(git log -1 --pretty=%s)
@@ -268,4 +290,10 @@ commitMessage: $COMMIT_MSG
 filesChanged: $FILES
 summary: Completed task — {short description}
 RESULT_EOF
+
+You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions.
 ```
+
+6. Update registry entry's `taskId` from TaskCreate. Write registry.
+7. Tell user: agent `<id>` spawned. Available commands: `list`, `switch`, `stop`, `merge`, `resume`, `retry`, `diff`, `logs`, `batch`, `note`, `watch`, `rebase`, `export`, `stats`, `history`, `clean`.
+
