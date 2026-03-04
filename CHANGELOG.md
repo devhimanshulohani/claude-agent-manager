@@ -9,6 +9,8 @@
 - Incremental verification after each step prevents cascading errors
 - Resume agents analyze previous progress before planning remaining work
 - Commit and result-file write happen in the same bash block to prevent orphaned commits
+- Template `verifyCommand` and `commitFormat` now injected into spawn prompts via conditional blocks
+- Resume prompt fetches branch from remote before checkout to handle worktree isolation
 
 ## 2.0.0 (2026-03-05)
 
