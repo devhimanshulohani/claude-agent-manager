@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.1 (2026-03-05)
+
+### Fixes
+
+- Spawn and resume now store background Agent taskId instead of TaskCreate taskId — fixes list/switch/watch polling
+- `retry` rejects all non-retryable statuses, not just `running`
+- `list` handles null branch gracefully (marks as `unknown` instead of `failed`)
+- `watch` description corrected — asks for user confirmation, not auto-merge
+
 ## 2.1.0 (2026-03-05)
 
 ### Improvements
@@ -22,7 +31,7 @@
 - **logs**: Summarized activity log from agent transcripts
 - **batch**: Spawn multiple agents in parallel with one command
 - **note**: Attach notes to agent entries for tracking context
-- **watch**: Poll a running agent and auto-merge on completion
+- **watch**: Poll a running agent until completion, with merge confirmation
 - **rebase**: Rebase agent branch onto latest main before merging
 - **export**: Export agent changes as a `.patch` file
 - **stats**: Lifetime statistics — total spawned, success rate, most active day

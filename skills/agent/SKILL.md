@@ -23,7 +23,7 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 2. For each agent with status `running`:
    - Try `TaskOutput` with `block: false, timeout: 3000` using stored `taskId`
    - If task found & completed → check `.claude/agents/<id>-result.txt`, parse it, update entry to `completed` with branch/commit/files/completedAt
-   - If task NOT found (new session) → check result file. If exists, parse & mark `completed`. If not, check `git branch --list <branch>` — branch exists → `unknown`, no branch → `failed`
+   - If task NOT found (new session) → check result file. If exists, parse & mark `completed`. If not: if `branch` is null → `unknown`. Otherwise check `git branch --list <branch>` — branch exists → `unknown`, no branch → `failed`
 3. Write updated registry. Display table: **ID | Status | Description | Branch | Age**
 
 ## `switch <id>`
@@ -126,12 +126,12 @@ RESULT_EOF
 You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions.
 ```
 
-8. Update registry entry's `taskId`. Write registry.
+8. Update registry entry's `taskId` from the background Agent task. Write registry.
 9. Tell user: agent `<id>` resumed on branch `<branch>`.
 
 ## `retry <id>`
 
-1. Look up agent in registry. Must have status `stopped`/`failed`/`unknown`. Reject if `running`.
+1. Look up agent in registry. Must have status `stopped`/`failed`/`unknown`. Reject otherwise.
 2. Save the original `description` from the entry.
 3. Generate a NEW agent ID.
 4. Add new entry to registry with original description, status `running`. Write registry.
@@ -294,6 +294,6 @@ RESULT_EOF
 You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions.
 ```
 
-6. Update registry entry's `taskId` from TaskCreate. Write registry.
+6. Update registry entry's `taskId` from the background Agent task (NOT TaskCreate). Write registry.
 7. Tell user: agent `<id>` spawned. Available commands: `list`, `switch`, `stop`, `merge`, `resume`, `retry`, `diff`, `logs`, `batch`, `note`, `watch`, `rebase`, `export`, `stats`, `history`, `clean`.
 
