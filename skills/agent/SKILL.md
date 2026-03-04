@@ -13,6 +13,7 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 **Registry:** Read `.claude/agents/registry.json` — if missing/corrupt, default to `{ "version": 1, "agents": [] }`. Always `mkdir -p .claude/agents` before writing.
 **Agent ID:** Generate via `echo "$(date +%s)$$.$RANDOM" | shasum | head -c 6` (6-char hex). `$$` (PID) + `$RANDOM` ensures uniqueness even when called multiple times in the same second (e.g., `batch`).
 **Age format:** `<N>m ago` / `<N>h ago` / `<N>d ago` relative to `createdAt`.
+**Prefix match:** All ID-based commands support prefix matching. If the prefix is ambiguous (matches multiple agents), reject and show the matching IDs. If no match, show all available IDs.
 **Templates dir:** `.claude/agents/templates/` — JSON files with required fields `{ name, description }` and optional `{ verifyCommand, commitFormat }`. `verifyCommand` overrides Phase 4 auto-detection; `commitFormat` overrides the default conventional commit format.
 
 ---
@@ -31,12 +32,13 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 
 ## `switch <id>`
 
-1. Look up agent by ID in registry (prefix match if unambiguous). If not found, show available IDs.
+1. Look up agent by ID in registry (prefix match). If not found, show available IDs.
 2. If `running` and `taskId` is not null → `TaskOutput` with `block: false, timeout: 5000` and display the latest output to the user. If `running` with null `taskId` → say "Agent is running but has no task handle (spawn may have partially failed). Try `/agent list` to refresh or `/agent stop <id>`."
 3. Otherwise → read `.claude/agents/<id>-result.txt` for summary. If file missing, say "No result file yet. Agent may still be in progress or failed without output."
 4. Show: status, description, branch. Suggest next actions based on status:
    - `running` → `/agent watch <id>` or `/agent stop <id>`
-   - `completed`/`unknown`/`stopped` → `/agent merge <id>`, `/agent diff <id>`
+   - `completed` → `/agent merge <id>`, `/agent diff <id>`
+   - `unknown`/`stopped` → `/agent merge <id>`, `/agent diff <id>`, `/agent resume <id>`
    - `failed` → `/agent retry <id>` or `/agent resume <id>`
    - `merged` → `/agent clean`
    - If branch exists (any status), also suggest `git diff main...<branch>`
@@ -50,7 +52,7 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 ## `history`
 
 1. Read registry. If empty, say "No agent history found"
-2. Display ALL agents sorted by `createdAt` desc. Table: **ID | Status | Description | Branch | Commit Message | Date**. Show "—" for null/empty commit messages.
+2. Display ALL agents sorted by `createdAt` desc. Table: **ID | Status | Description | Branch | Commit Message | Date**. Show "—" for null/empty commit messages. Show notes count if agent has notes (e.g., "2 notes").
 
 ## `clean`
 
@@ -160,7 +162,7 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 ## `diff <id>`
 
 1. Look up agent in registry (prefix match). If not found, show available IDs.
-2. Get the branch name. If no branch, say "No branch found for this agent."
+2. Get the branch name. If no branch, reject: "No branch found for this agent."
 3. Run `git diff main...<branch> --stat` to show file-level summary.
 4. Run `git diff main...<branch>` to show full diff.
 5. Display the stat summary first, then the full diff (truncate if extremely long — show first 200 lines and note if truncated).
@@ -169,7 +171,7 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 
 1. Look up agent in registry (prefix match).
 2. Read `.claude/agents/<id>-result.txt` — display if exists.
-3. Find the agent's subagent transcript: search for files matching `~/.claude/projects/*/subagents/agent-*.jsonl` using Glob. Look for the transcript that corresponds to the agent's `taskId`.
+3. If `taskId` is not null, find the agent's subagent transcript: search for files matching `~/.claude/projects/*/subagents/agent-*.jsonl` using Glob. Look for the transcript that corresponds to the agent's `taskId`. If `taskId` is null, skip to step 5.
 4. If transcript found, read it and extract a summary:
    - List tools used (Read, Write, Edit, Bash, etc.) with counts
    - Show files read/modified
@@ -180,7 +182,7 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 
 ## `batch "task1" "task2" ...`
 
-1. Parse arguments — use shell-style quote parsing. Each quoted string is a separate task description. Unquoted words are joined as a single task.
+1. Parse arguments — use shell-style quote parsing. Each quoted string is a separate task description. Unquoted words are joined as a single task. If no tasks parsed, reject: "Usage: `/agent batch \"task one\" \"task two\" ...`"
 2. For each task: generate a unique ID, add entry to registry (using standard schema from Spawn step 4) with status `running`. Write registry once with all new entries.
 3. For each task: run `TaskCreate` (subject, description, activeForm) then spawn `Agent` (same params as Spawn step 5). Update the entry's `taskId` from the Agent task. Write registry after each spawn to persist `taskId`.
 4. Display table of all spawned agents: **ID | Description | Status**
@@ -201,14 +203,15 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 3. Enter a poll loop (max 30 iterations, 10s apart):
    - Try `TaskOutput` with `block: true, timeout: 10000`
    - If completed → parse result file (if missing, update registry to `completed` with no file details and note "Result file not found — agent may have failed to write it")
-   - If branch is not null, run `git diff main...<branch> --stat` to preview changes. If branch is null, say "Agent completed but no branch was recorded."
-   - Show the diff summary to the user
-   - Ask user explicitly: "Agent completed. Merge branch `<branch>` into current branch?" — wait for confirmation. Do NOT auto-merge. (Skip merge prompt if branch is null.)
-   - If user confirms → check working tree is clean (`git status --porcelain`), then run `git merge <branch>`, update status to `merged`, write registry, suggest `/agent clean`
-   - If user declines → tell user: "Skipped merge. Use `/agent merge <id>` later or `/agent diff <id>` to review."
-   - Break loop.
+     - If branch is not null, run `git diff main...<branch> --stat` to preview changes. If branch is null, say "Agent completed but no branch was recorded."
+     - Show the diff summary to the user
+     - Ask user explicitly: "Agent completed. Merge branch `<branch>` into current branch?" — wait for confirmation. Do NOT auto-merge. (Skip merge prompt if branch is null.)
+     - If user confirms → check working tree is clean (`git status --porcelain`), then run `git merge <branch>`. On success → update status to `merged`, write registry, suggest `/agent clean`. On conflict → tell user, suggest `git merge --abort`
+     - If user declines → tell user: "Skipped merge. Use `/agent merge <id>` later or `/agent diff <id>` to review."
+     - Break loop.
+   - If errored → update registry to `failed`, write registry. Tell user: "Agent failed. Use `/agent logs <id>` to investigate or `/agent retry <id>` to try again." Break loop.
    - If still running, continue polling.
-3. If max iterations reached, say: "Agent still running after 5 minutes. Use `/agent watch <id>` again or `/agent list` to check."
+4. If max iterations reached, say: "Agent still running after 5 minutes. Use `/agent watch <id>` again or `/agent list` to check."
 
 ## `rebase <id>`
 
@@ -224,7 +227,7 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 
 1. Look up agent in registry (prefix match).
 2. Get branch name. If no branch, reject.
-3. Run `git format-patch main..<branch> --stdout > .claude/agents/<id>.patch`
+3. Run `mkdir -p .claude/agents && git format-patch main..<branch> --stdout > .claude/agents/<id>.patch`
 4. Tell user: "Patch exported to `.claude/agents/<id>.patch`. Apply with `git am < .claude/agents/<id>.patch`."
 
 ## `stats`
@@ -245,11 +248,11 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 Handles: plain task descriptions and `--template <name>` flag.
 
 1. Check if arguments contain `--template <name>`:
-   - If yes, read `.claude/agents/templates/<name>.json`. If not found, list available templates. Use template's description prefix + remaining args as description. Store `verifyCommand` and `commitFormat` from the template for injection into the prompt.
+   - If yes, read `.claude/agents/templates/<name>.json`. If not found, list available templates and abort (do not spawn). Use template's description prefix + remaining args as description. Store `verifyCommand` and `commitFormat` from the template for injection into the prompt.
    - If no, use full `$ARGUMENTS` as the task description. Set `verifyCommand` and `commitFormat` to `null`.
 2. Generate ID, read registry.
 3. `TaskCreate` with subject (60 chars max), description, activeForm (present continuous).
-4. Add entry to registry: `{ id, taskId: null, description, status: "running", branch: null, commit: null, commitMessage: null, createdAt: <ISO now>, completedAt: null, filesChanged: [], notes: [], verifyCommand: null, commitFormat: null }`. Write registry.
+4. Add entry to registry: `{ id, taskId: null, description, status: "running", branch: null, commit: null, commitMessage: null, createdAt: <ISO now>, completedAt: null, filesChanged: [], notes: [], verifyCommand: <from step 1>, commitFormat: <from step 1> }`. Write registry.
 5. Spawn `Agent` with `subagent_type: "general-purpose"`, `run_in_background: true`, `isolation: "worktree"`, prompt below.
    **Template handling:** If `verifyCommand` is set, include only the `{if verifyCommand}` block in Phase 4. If `commitFormat` is set, include only the `{if commitFormat}` block in Phase 5. Otherwise include the `{else}` blocks. Remove the `{if}`/`{else}`/`{end}` markers from the final prompt.
 
