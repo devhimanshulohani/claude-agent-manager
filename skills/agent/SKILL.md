@@ -1,7 +1,7 @@
 ---
 name: agent
 description: Spawn and manage autonomous background agents
-argument-hint: "task" | list | switch | stop | merge | resume | retry | diff | logs | batch | note | watch | rebase | export | stats | history | clean <id>
+argument-hint: "task" | list | switch <id> | stop <id> | merge <id> | resume <id> | retry <id> | diff <id> | logs <id> | batch | note <id> | watch <id> | rebase <id> | export <id> | stats | history | clean
 disable-model-invocation: true
 allowed-tools: Agent, Bash, Read, Edit, Write, Glob, Grep, TaskOutput, TaskStop, TaskCreate, TaskUpdate, TaskList
 ---
@@ -82,7 +82,14 @@ Instructions:
 1. You are in a worktree. First, checkout the existing branch: `git checkout {branch}` (or `git checkout -b {branch} origin/{branch}` if needed)
 2. Review what was already done — read changed files, understand the progress
 3. Continue from where it left off — do NOT redo completed work
-4. Make all remaining changes needed, then verify: TypeScript → `npm run build`, Rust → `cd src-tauri && cargo check`
+4. Make all remaining changes needed, then verify the build:
+   - Look for common project indicators and run the appropriate check:
+     - `package.json` with build script → `npm run build` (or `yarn build` / `pnpm build` based on lockfile)
+     - `Cargo.toml` → `cargo check`
+     - `go.mod` → `go build ./...`
+     - `pyproject.toml` / `setup.py` → `python -m py_compile` on changed files
+     - `Makefile` → `make`
+   - If no recognizable build system, skip verification and note it in the summary
 5. Commit with conventional format: `type(scope): subject`
 6. CRITICAL — after committing, write result file to the ORIGINAL repo (not worktree):
 
@@ -173,10 +180,10 @@ Poll a running agent and auto-merge when complete.
    - Try `TaskOutput` with `block: true, timeout: 10000`
    - If completed → parse result file, update registry to `completed`
    - Run `git diff main...<branch> --stat` to preview changes
-   - Ask user: "Agent completed. Changes: {stat summary}. Merge now? (merging automatically in 10s...)"
-   - Wait 10s, then run merge: `git merge <branch>`
-   - Update status to `merged`. Write registry.
-   - Tell user: "Agent `<id>` merged. Run `/agent clean` to tidy up."
+   - Show the diff summary to the user
+   - Ask user explicitly: "Agent completed. Merge branch `<branch>` into current branch?" — wait for confirmation. Do NOT auto-merge.
+   - If user confirms → run `git merge <branch>`, update status to `merged`, write registry, suggest `/agent clean`
+   - If user declines → tell user: "Skipped merge. Use `/agent merge <id>` later or `/agent diff <id>` to review."
    - Break loop.
    - If still running, continue polling.
 3. If max iterations reached, say: "Agent still running after 5 minutes. Use `/agent watch <id>` again or `/agent list` to check."
@@ -188,8 +195,8 @@ Rebase an agent's branch onto latest main before merging.
 1. Look up agent in registry. Must have status `completed`/`unknown`. Reject if `running`.
 2. Verify branch exists. If not, say so.
 3. Run `git fetch origin main` (ignore errors if no remote).
-4. Run `git rebase main <branch>`.
-5. On success → tell user: "Branch `<branch>` rebased onto main. Ready to merge with `/agent merge <id>`."
+4. Run `git checkout <branch> && git rebase main`.
+5. On success → run `git checkout -` to return to original branch. Tell user: "Branch `<branch>` rebased onto main. Ready to merge with `/agent merge <id>`."
 6. On conflict → tell user the conflicting files, suggest `git rebase --abort` or manual resolution.
 
 ## `export <id>`
@@ -234,7 +241,14 @@ You are an autonomous agent. **Task:** {description} | **Agent ID:** {id}
 Instructions:
 1. Work autonomously — no questions, make reasonable decisions
 2. Read and understand relevant code before changing it
-3. Make all changes needed, then verify: TypeScript → `npm run build`, Rust → `cd src-tauri && cargo check`
+3. Make all changes needed, then verify the build:
+   - Look for common project indicators and run the appropriate check:
+     - `package.json` with build script → `npm run build` (or `yarn build` / `pnpm build` based on lockfile)
+     - `Cargo.toml` → `cargo check`
+     - `go.mod` → `go build ./...`
+     - `pyproject.toml` / `setup.py` → `python -m py_compile` on changed files
+     - `Makefile` → `make`
+   - If no recognizable build system, skip verification and note it in the summary
 4. Commit with conventional format: `type(scope): subject`
 5. CRITICAL — after committing, write result file to the ORIGINAL repo (not worktree):
 
