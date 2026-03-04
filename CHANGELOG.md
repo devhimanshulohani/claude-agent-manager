@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.0 (2026-03-05)
+
+### Improvements
+
+- **structured decomposition**: Agent spawn and resume prompts now use a 5-phase approach (Analyze → Plan → Implement → Verify → Commit & Report) instead of flat instructions
+- Agents break tasks into 3–8 ordered steps before implementing, with fallback approaches for risky steps
+- Incremental verification after each step prevents cascading errors
+- Resume agents analyze previous progress before planning remaining work
+- Commit and result-file write happen in the same bash block to prevent orphaned commits
+
 ## 2.0.0 (2026-03-05)
 
 ### Features
