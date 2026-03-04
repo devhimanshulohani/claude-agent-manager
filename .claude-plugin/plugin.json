@@ -1,7 +1,7 @@
 {
   "name": "agent-manager",
   "description": "Spawn and manage autonomous background agents with persistent state across sessions",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "author": { "name": "Himanshu Lohani" },
   "homepage": "https://github.com/devhimanshulohani/claude-agent-manager#readme",
   "repository": "https://github.com/devhimanshulohani/claude-agent-manager",
