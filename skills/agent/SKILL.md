@@ -13,7 +13,7 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 **Registry:** Read `.claude/agents/registry.json` — if missing/corrupt, default to `{ "version": 1, "agents": [] }`. Always `mkdir -p .claude/agents` before writing.
 **Agent ID:** Generate via `date +%s | shasum | head -c 6` (6-char hex).
 **Age format:** `<N>m ago` / `<N>h ago` / `<N>d ago` relative to `createdAt`.
-**Templates dir:** `.claude/agents/templates/` — JSON files with `{ name, description, verifyCommand, commitFormat }`.
+**Templates dir:** `.claude/agents/templates/` — JSON files with required fields `{ name, description }` and optional `{ verifyCommand, commitFormat }`. `verifyCommand` overrides Phase 4 auto-detection; `commitFormat` overrides the default conventional commit format.
 
 ---
 
@@ -42,19 +42,19 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 ## `history`
 
 1. Read registry. If empty, say "No agent history found"
-2. Display ALL agents sorted by `createdAt` desc. Table: **ID | Status | Description | Branch | Commit Message | Date**
+2. Display ALL agents sorted by `createdAt` desc. Table: **ID | Status | Description | Branch | Commit Message | Date**. Show "—" for null/empty commit messages.
 
 ## `clean`
 
 1. Read registry. Filter agents with status `completed`/`stopped`/`merged`/`failed`/`unknown`
-2. For each: remove worktree (`git worktree remove <path> --force`), delete `<id>-result.txt`, delete branch if `merged` (`git branch -d <branch>`). Ignore errors.
+2. For each: delete `.claude/agents/<id>-result.txt`, delete branch if `merged` (`git branch -d <branch>`). Ignore errors. (Worktrees from `isolation: "worktree"` are auto-managed by Claude Code.)
 3. Remove entries from registry, write it. Report: "Cleaned up N agent(s). M still running."
 
 ## `merge <id>`
 
-1. Look up agent. If not found or status not `completed`/`unknown`, reject with reason.
+1. Look up agent. If not found or status not `completed`/`unknown`/`stopped`, reject with reason.
 2. Verify branch exists (`git branch --list <branch>`). If not, say so.
-3. Run `git merge <branch>`. On success → update status to `merged`, write registry, suggest `/agent clean`. On conflict → tell user, suggest `git merge --abort`.
+3. Run `git checkout main && git merge <branch>`. On success → update status to `merged`, write registry, suggest `/agent clean`. On conflict → tell user, suggest `git merge --abort`.
 
 ---
 
@@ -79,7 +79,7 @@ You are an autonomous agent RESUMING previous work. **Task:** {description} | **
 You MUST work through these 5 phases in order. Do not skip phases.
 
 ## Phase 1 — Analyze Previous Progress
-- Fetch and checkout the existing branch: `git fetch origin {branch} 2>/dev/null; git checkout {branch} 2>/dev/null || git checkout -b {branch} origin/{branch}`
+- Fetch and checkout the existing branch: `git fetch origin {branch} 2>/dev/null; git checkout {branch} 2>/dev/null || git checkout -b {branch} origin/{branch} 2>/dev/null || echo "Warning: branch {branch} not found"`
 - Read the changed files and understand what was already completed
 - Identify what remains to be done vs what is already done
 - Do NOT redo completed work — only pick up where it left off
@@ -161,7 +161,7 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 
 ## `batch "task1" "task2" ...`
 
-1. Parse arguments — split by quoted strings. Each quoted string is a separate task description.
+1. Parse arguments — use shell-style quote parsing. Each quoted string is a separate task description. Unquoted words are joined as a single task.
 2. For each task: generate a unique ID, add entry to registry with status `running`
 3. Write registry once with all new entries.
 4. For each task, spawn using the standard **Spawn** flow (TaskCreate + Agent).
@@ -195,10 +195,11 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 
 1. Look up agent in registry. Must have status `completed`/`unknown`. Reject if `running`.
 2. Verify branch exists. If not, say so.
-3. Run `git fetch origin main` (ignore errors if no remote).
-4. Run `git checkout <branch> && git rebase main`.
-5. On success → run `git checkout -` to return to original branch. Tell user: "Branch `<branch>` rebased onto main. Ready to merge with `/agent merge <id>`."
-6. On conflict → tell user the conflicting files, suggest `git rebase --abort` or manual resolution.
+3. Check working tree is clean (`git status --porcelain`). If dirty, reject: "Working tree has uncommitted changes. Commit or stash first."
+4. Run `git fetch origin main` (ignore errors if no remote).
+5. Run `git checkout <branch> && git rebase main`.
+6. On success → run `git checkout -` to return to original branch. Tell user: "Branch `<branch>` rebased onto main. Ready to merge with `/agent merge <id>`."
+7. On conflict → tell user the conflicting files, suggest `git rebase --abort` or manual resolution.
 
 ## `export <id>`
 
@@ -229,7 +230,7 @@ Handles: plain task descriptions and `--template <name>` flag.
    - If no, use full `$ARGUMENTS` as the task description. Set `verifyCommand` and `commitFormat` to `null`.
 2. Generate ID, read registry.
 3. `TaskCreate` with subject (60 chars max), description, activeForm (present continuous).
-4. Add entry to registry: `{ id, taskId: null, description, status: "running", branch: null, worktreePath: null, commit: null, commitMessage: null, createdAt: <ISO now>, completedAt: null, filesChanged: [], notes: [] }`. Write registry.
+4. Add entry to registry: `{ id, taskId: null, description, status: "running", branch: null, commit: null, commitMessage: null, createdAt: <ISO now>, completedAt: null, filesChanged: [], notes: [] }`. Write registry.
 5. Spawn `Agent` with `subagent_type: "general-purpose"`, `run_in_background: true`, `isolation: "worktree"`, prompt below.
    **Template handling:** If `verifyCommand` is set, include only the `{if verifyCommand}` block in Phase 4. If `commitFormat` is set, include only the `{if commitFormat}` block in Phase 5. Otherwise include the `{else}` blocks. Remove the `{if}`/`{else}`/`{end}` markers from the final prompt.
 

@@ -29,45 +29,45 @@ claude --plugin-dir /path/to/claude-agent-manager
 
 | Command | Description |
 |---------|-------------|
-| `/agent-manager:agent "task"` | Spawn a new background agent |
-| `/agent-manager:agent list` | Show all agents and their status |
-| `/agent-manager:agent switch <id>` | View details of a specific agent |
-| `/agent-manager:agent stop <id>` | Stop a running agent |
-| `/agent-manager:agent merge <id>` | Merge a completed agent's branch |
-| `/agent-manager:agent history` | Show full agent history |
-| `/agent-manager:agent clean` | Remove finished agents and worktrees |
+| `/agent "task"` | Spawn a new background agent |
+| `/agent list` | Show all agents and their status |
+| `/agent switch <id>` | View details of a specific agent |
+| `/agent stop <id>` | Stop a running agent |
+| `/agent merge <id>` | Merge a completed agent's branch |
+| `/agent history` | Show full agent history |
+| `/agent clean` | Remove finished agents and worktrees |
 
 ### Recovery
 
 | Command | Description |
 |---------|-------------|
-| `/agent-manager:agent resume <id>` | Resume a stopped/failed agent on its existing branch |
-| `/agent-manager:agent retry <id>` | Re-spawn a failed agent with the same task from scratch |
+| `/agent resume <id>` | Resume a stopped/failed agent on its existing branch |
+| `/agent retry <id>` | Re-spawn a failed agent with the same task from scratch |
 
 ### Inspection
 
 | Command | Description |
 |---------|-------------|
-| `/agent-manager:agent diff <id>` | Quick inline diff preview of agent's changes |
-| `/agent-manager:agent logs <id>` | Summarized activity log of what the agent did |
-| `/agent-manager:agent stats` | Lifetime stats — total spawned, success rate, etc. |
+| `/agent diff <id>` | Quick inline diff preview of agent's changes |
+| `/agent logs <id>` | Summarized activity log of what the agent did |
+| `/agent stats` | Lifetime stats — total spawned, success rate, etc. |
 
 ### Advanced
 
 | Command | Description |
 |---------|-------------|
-| `/agent-manager:agent batch "task1" "task2"` | Spawn multiple agents in parallel |
-| `/agent-manager:agent note <id> "text"` | Attach a note to an agent |
-| `/agent-manager:agent watch <id>` | Poll a running agent until completion |
-| `/agent-manager:agent rebase <id>` | Rebase agent branch onto latest main |
-| `/agent-manager:agent export <id>` | Export changes as a `.patch` file |
+| `/agent batch "task1" "task2"` | Spawn multiple agents in parallel |
+| `/agent note <id> "text"` | Attach a note to an agent |
+| `/agent watch <id>` | Poll a running agent until completion |
+| `/agent rebase <id>` | Rebase agent branch onto latest main |
+| `/agent export <id>` | Export changes as a `.patch` file |
 
 ### Templates
 
 Spawn with a pre-defined template:
 
 ```
-/agent-manager:agent --template api "add user profile endpoint"
+/agent --template api "add user profile endpoint"
 ```
 
 Templates are stored in `.claude/agents/templates/` as JSON files.

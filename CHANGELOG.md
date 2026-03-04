@@ -41,7 +41,7 @@
 
 - Registry entries now include `notes` array
 - Spawn command shows all available commands in confirmation
-- Bumped to Agent Manager v3
+- Internal prompt restructured with 5-phase heading (v3)
 
 ## 1.0.0 (2026-03-05)
 
