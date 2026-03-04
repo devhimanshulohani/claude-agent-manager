@@ -1,7 +1,7 @@
 ---
 name: agent
 description: Spawn and manage autonomous background agents
-argument-hint: "task" | list | switch <id> | stop <id> | merge <id> | resume <id> | retry <id> | diff <id> | logs <id> | batch | note <id> | watch <id> | rebase <id> | export <id> | stats | history | clean
+argument-hint: '"task" | list | switch <id> | stop <id> | merge <id> | resume <id> | retry <id> | diff <id> | logs <id> | batch | note <id> | watch <id> | rebase <id> | export <id> | stats | history | clean'
 disable-model-invocation: true
 allowed-tools: Agent, AskUserQuestion, Bash, Read, Edit, Write, Glob, Grep, TaskOutput, TaskStop, TaskCreate, TaskUpdate, TaskList
 ---
