@@ -11,7 +11,7 @@ allowed-tools: Agent, AskUserQuestion, Bash, Read, Edit, Write, Glob, Grep, Task
 Parse `$ARGUMENTS` and execute the matching command below. Persistent state lives in `.claude/agents/registry.json` (source of truth). Task system is for live monitoring only.
 
 **Registry:** Read `.claude/agents/registry.json` — if missing/corrupt, default to `{ "version": 1, "agents": [] }`. Always `mkdir -p .claude/agents` before writing.
-**Agent ID:** Generate via `echo "$(date +%s%N)$RANDOM" | shasum | head -c 6` (6-char hex). The `%N`+`$RANDOM` ensures uniqueness even when called multiple times in the same second (e.g., `batch`).
+**Agent ID:** Generate via `echo "$(date +%s)$$.$RANDOM" | shasum | head -c 6` (6-char hex). `$$` (PID) + `$RANDOM` ensures uniqueness even when called multiple times in the same second (e.g., `batch`).
 **Age format:** `<N>m ago` / `<N>h ago` / `<N>d ago` relative to `createdAt`.
 **Templates dir:** `.claude/agents/templates/` — JSON files with required fields `{ name, description }` and optional `{ verifyCommand, commitFormat }`. `verifyCommand` overrides Phase 4 auto-detection; `commitFormat` overrides the default conventional commit format.
 
@@ -34,7 +34,12 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 1. Look up agent by ID in registry (prefix match if unambiguous). If not found, show available IDs.
 2. If `running` and `taskId` is not null → `TaskOutput` with `block: false, timeout: 5000`. If `running` with null `taskId` → say "Agent is running but has no task handle (spawn may have partially failed). Try `/agent list` to refresh or `/agent stop <id>`."
 3. Otherwise → read `.claude/agents/<id>-result.txt` for summary. If file missing, say "No result file yet. Agent may still be in progress or failed without output."
-4. Show: status, description, branch. If branch exists, suggest `git diff main...<branch>` and `/agent diff <id>`. If status is `completed`/`unknown`/`stopped`, also suggest `/agent merge <id>`. If `running`, suggest `/agent watch <id>` or `/agent stop <id>`.
+4. Show: status, description, branch. Suggest next actions based on status:
+   - `running` → `/agent watch <id>` or `/agent stop <id>`
+   - `completed`/`unknown`/`stopped` → `/agent merge <id>`, `/agent diff <id>`
+   - `failed` → `/agent retry <id>` or `/agent resume <id>`
+   - `merged` → `/agent clean`
+   - If branch exists (any status), also suggest `git diff main...<branch>`
 
 ## `stop <id>`
 
@@ -56,8 +61,9 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 ## `merge <id>`
 
 1. Look up agent. If not found or status not `completed`/`unknown`/`stopped`, reject with reason.
-2. Verify branch exists (`git branch --list <branch>`). If not, say so.
-3. Run `git checkout main && git merge <branch>`. On success → update status to `merged`, write registry, suggest `/agent clean`. On conflict → tell user, suggest `git merge --abort`.
+2. If `branch` is null, reject: "No branch recorded for this agent." Otherwise, verify branch exists (`git branch --list <branch>`). If not, say so.
+3. Check working tree is clean (`git status --porcelain`). If dirty, reject: "Working tree has uncommitted changes. Commit or stash first."
+4. Run `git checkout main && git merge <branch>`. On success → update status to `merged`, write registry, suggest `/agent clean`. On conflict → tell user, suggest `git merge --abort`.
 
 ---
 
@@ -175,11 +181,10 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 ## `batch "task1" "task2" ...`
 
 1. Parse arguments — use shell-style quote parsing. Each quoted string is a separate task description. Unquoted words are joined as a single task.
-2. For each task: generate a unique ID, add entry to registry with status `running`
-3. Write registry once with all new entries.
-4. For each task, spawn using the standard **Spawn** flow (TaskCreate + Agent).
-5. Display table of all spawned agents: **ID | Description | Status**
-6. Tell user: "Spawned {N} agents. Use `/agent list` to monitor."
+2. For each task: generate a unique ID, add entry to registry (using standard schema from Spawn step 4) with status `running`. Write registry once with all new entries.
+3. For each task: run `TaskCreate` (subject, description, activeForm) then spawn `Agent` (same params as Spawn step 5). Update the entry's `taskId` from the Agent task. Write registry after each spawn to persist `taskId`.
+4. Display table of all spawned agents: **ID | Description | Status**
+5. Tell user: "Spawned {N} agents. Use `/agent list` to monitor."
 
 ## `note <id> "text"`
 
@@ -207,7 +212,7 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 ## `rebase <id>`
 
 1. Look up agent in registry. Must have status `completed`/`unknown`/`stopped`. Reject if `running`/`merged`/`failed` with reason.
-2. Verify branch exists. If not, say so.
+2. If `branch` is null, reject: "No branch recorded for this agent." Otherwise, verify branch exists (`git branch --list <branch>`). If not, say so.
 3. Check working tree is clean (`git status --porcelain`). If dirty, reject: "Working tree has uncommitted changes. Commit or stash first."
 4. Run `git fetch origin main` (ignore errors if no remote).
 5. Run `git checkout <branch> && git rebase main`.
@@ -229,7 +234,7 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
    - **By status:** count per status (running/completed/stopped/failed/merged/unknown)
    - **Success rate:** completed+merged / total (exclude running). If no non-running agents, show "N/A"
    - **Most active day:** group by date of `createdAt`, find max
-   - **Avg files changed:** average length of `filesChanged` arrays (for completed/merged)
+   - **Avg files changed:** average length of `filesChanged` arrays (for completed/merged). If none, show "N/A"
 3. Display as a formatted summary panel.
 
 ---
