@@ -32,7 +32,7 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 ## `switch <id>`
 
 1. Look up agent by ID in registry (prefix match if unambiguous). If not found, show available IDs.
-2. If `running` and `taskId` is not null → `TaskOutput` with `block: false, timeout: 5000`. If `running` with null `taskId` → say "Agent is running but has no task handle (spawn may have partially failed). Try `/agent list` to refresh or `/agent stop <id>`."
+2. If `running` and `taskId` is not null → `TaskOutput` with `block: false, timeout: 5000` and display the latest output to the user. If `running` with null `taskId` → say "Agent is running but has no task handle (spawn may have partially failed). Try `/agent list` to refresh or `/agent stop <id>`."
 3. Otherwise → read `.claude/agents/<id>-result.txt` for summary. If file missing, say "No result file yet. Agent may still be in progress or failed without output."
 4. Show: status, description, branch. Suggest next actions based on status:
    - `running` → `/agent watch <id>` or `/agent stop <id>`
@@ -43,7 +43,7 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 
 ## `stop <id>`
 
-1. Look up agent in registry. If not found, say so. If status is not `running`, reject: "Agent `<id>` is `<status>`, not running."
+1. Look up agent in registry (prefix match). If not found, say so. If status is not `running`, reject: "Agent `<id>` is `<status>`, not running."
 2. If `taskId` is not null, try `TaskStop` with `task_id` (ignore errors if gone). If `taskId` is null, skip — just update status.
 3. Update registry: status → `stopped`, set `completedAt`. Write registry. Confirm.
 
@@ -55,12 +55,12 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 ## `clean`
 
 1. Read registry. Filter agents with status `completed`/`stopped`/`merged`/`failed`/`unknown`
-2. For each: delete `.claude/agents/<id>-result.txt` and `.claude/agents/<id>.patch` (if exists), delete branch if `merged` (`git branch -d <branch>`). Ignore errors. (Worktrees from `isolation: "worktree"` are auto-managed by Claude Code.)
+2. For each: delete `.claude/agents/<id>-result.txt` and `.claude/agents/<id>.patch` (if exists), delete branch if `merged` and `branch` is not null (`git branch -d <branch>`). Ignore errors. (Worktrees from `isolation: "worktree"` are auto-managed by Claude Code.)
 3. Remove entries from registry, write it. Report: "Cleaned up N agent(s). M still running."
 
 ## `merge <id>`
 
-1. Look up agent. If not found or status not `completed`/`unknown`/`stopped`, reject with reason.
+1. Look up agent (prefix match). If not found or status not `completed`/`unknown`/`stopped`, reject with reason.
 2. If `branch` is null, reject: "No branch recorded for this agent." Otherwise, verify branch exists (`git branch --list <branch>`). If not, say so.
 3. Check working tree is clean (`git status --porcelain`). If dirty, reject: "Working tree has uncommitted changes. Commit or stash first."
 4. Run `git checkout main && git merge <branch>`. On success → update status to `merged`, write registry, suggest `/agent clean`. On conflict → tell user, suggest `git merge --abort`.
@@ -69,7 +69,7 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 
 ## `resume <id>`
 
-1. Look up agent in registry. Must have status `stopped`/`failed`/`unknown`. Reject if `running`/`completed`/`merged`.
+1. Look up agent in registry (prefix match). Must have status `stopped`/`failed`/`unknown`. Reject if `running`/`completed`/`merged`.
 2. If `branch` is null, say "No branch to resume from. Use `/agent retry <id>` to start fresh." Otherwise, verify branch exists (`git branch --list <branch>`). If not, say "Branch no longer exists. Use `/agent retry <id>` to start fresh."
 3. Read `.claude/agents/<id>-result.txt` if exists — extract any partial progress info.
 4. Get the list of changes already made: `git log main..<branch> --oneline` and `git diff main..<branch> --stat`
@@ -130,7 +130,7 @@ You MUST work through these 5 phases in order. Do not skip phases.
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 COMMIT=$(git rev-parse --short HEAD)
 COMMIT_MSG=$(git log -1 --pretty=%s)
-FILES=$(git diff --name-only HEAD~1 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+FILES=$(git diff main..HEAD --name-only 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
 mkdir -p {repo_absolute_path}/.claude/agents
 cat > {repo_absolute_path}/.claude/agents/{id}-result.txt << RESULT_EOF
 branch: $BRANCH
@@ -150,11 +150,11 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 
 ## `retry <id>`
 
-1. Look up agent in registry. Must have status `stopped`/`failed`/`unknown`. Reject otherwise.
+1. Look up agent in registry (prefix match). Must have status `stopped`/`failed`/`unknown`. Reject otherwise.
 2. Save the original `description`, `verifyCommand`, and `commitFormat` from the entry.
 3. Generate a NEW agent ID.
-4. Add new entry to registry with original description, `verifyCommand`, `commitFormat`, status `running`. Write registry.
-5. Spawn using the standard **Spawn** flow below with the original description (pass through `verifyCommand`/`commitFormat` instead of setting to null).
+4. Add new entry to registry (using standard schema from Spawn step 4) with original description, `verifyCommand`, `commitFormat`, status `running`. Write registry.
+5. Run `TaskCreate` (subject, description, activeForm) then spawn `Agent` (same params as Spawn step 5, passing through `verifyCommand`/`commitFormat` for template handling). Update the entry's `taskId` from the Agent task. Write registry.
 6. Tell user: "Retrying as new agent `<new_id>` (original: `<old_id>`). Original agent preserved in history."
 
 ## `diff <id>`
@@ -196,14 +196,15 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 
 ## `watch <id>`
 
-1. Look up agent in registry. Must have status `running`. Reject otherwise.
-2. Enter a poll loop (max 30 iterations, 10s apart):
+1. Look up agent in registry (prefix match). Must have status `running`. Reject otherwise.
+2. If `taskId` is null, reject: "Agent has no task handle. Try `/agent list` to refresh status."
+3. Enter a poll loop (max 30 iterations, 10s apart):
    - Try `TaskOutput` with `block: true, timeout: 10000`
    - If completed → parse result file (if missing, update registry to `completed` with no file details and note "Result file not found — agent may have failed to write it")
    - If branch is not null, run `git diff main...<branch> --stat` to preview changes. If branch is null, say "Agent completed but no branch was recorded."
    - Show the diff summary to the user
    - Ask user explicitly: "Agent completed. Merge branch `<branch>` into current branch?" — wait for confirmation. Do NOT auto-merge. (Skip merge prompt if branch is null.)
-   - If user confirms → run `git merge <branch>`, update status to `merged`, write registry, suggest `/agent clean`
+   - If user confirms → check working tree is clean (`git status --porcelain`), then run `git merge <branch>`, update status to `merged`, write registry, suggest `/agent clean`
    - If user declines → tell user: "Skipped merge. Use `/agent merge <id>` later or `/agent diff <id>` to review."
    - Break loop.
    - If still running, continue polling.
@@ -211,7 +212,7 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 
 ## `rebase <id>`
 
-1. Look up agent in registry. Must have status `completed`/`unknown`/`stopped`. Reject if `running`/`merged`/`failed` with reason.
+1. Look up agent in registry (prefix match). Must have status `completed`/`unknown`/`stopped`. Reject if `running`/`merged`/`failed` with reason.
 2. If `branch` is null, reject: "No branch recorded for this agent." Otherwise, verify branch exists (`git branch --list <branch>`). If not, say so.
 3. Check working tree is clean (`git status --porcelain`). If dirty, reject: "Working tree has uncommitted changes. Commit or stash first."
 4. Run `git fetch origin main` (ignore errors if no remote).
@@ -300,7 +301,7 @@ You MUST work through these 5 phases in order. Do not skip phases.
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 COMMIT=$(git rev-parse --short HEAD)
 COMMIT_MSG=$(git log -1 --pretty=%s)
-FILES=$(git diff --name-only HEAD~1 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+FILES=$(git diff main..HEAD --name-only 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
 mkdir -p {repo_absolute_path}/.claude/agents
 cat > {repo_absolute_path}/.claude/agents/{id}-result.txt << RESULT_EOF
 branch: $BRANCH
