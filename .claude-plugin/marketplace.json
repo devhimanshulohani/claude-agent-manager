@@ -8,7 +8,7 @@
       "name": "agent-manager",
       "source": "./",
       "description": "Spawn and manage autonomous background agents with persistent state across sessions",
-      "version": "2.1.1",
+      "version": "2.1.2",
       "author": {
         "name": "Himanshu Lohani"
       },
