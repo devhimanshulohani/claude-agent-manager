@@ -200,18 +200,17 @@ You are in an isolated worktree. Make changes freely. Work autonomously — no q
 
 1. Look up agent in registry (prefix match). Must have status `running`. Reject otherwise.
 2. If `taskId` is null, reject: "Agent has no task handle. Try `/agent list` to refresh status."
-3. Enter a poll loop (max 30 iterations, 10s apart):
-   - Try `TaskOutput` with `block: true, timeout: 10000`
+3. Tell user: "Watching agent `<id>`... (up to 5 minutes, Ctrl+C to stop)"
+4. Call `TaskOutput` with `block: true, timeout: 300000` (single blocking call, 5 minutes max).
+5. Handle the result:
    - If completed → parse result file (if missing, update registry to `completed` with no file details and note "Result file not found — agent may have failed to write it")
      - If branch is not null, run `git diff main...<branch> --stat` to preview changes. If branch is null, say "Agent completed but no branch was recorded."
      - Show the diff summary to the user
      - Ask user explicitly: "Agent completed. Merge branch `<branch>` into current branch?" — wait for confirmation. Do NOT auto-merge. (Skip merge prompt if branch is null.)
      - If user confirms → check working tree is clean (`git status --porcelain`), then run `git merge <branch>`. On success → update status to `merged`, write registry, suggest `/agent clean`. On conflict → tell user, suggest `git merge --abort`
      - If user declines → tell user: "Skipped merge. Use `/agent merge <id>` later or `/agent diff <id>` to review."
-     - Break loop.
-   - If errored → update registry to `failed`, write registry. Tell user: "Agent failed. Use `/agent logs <id>` to investigate or `/agent retry <id>` to try again." Break loop.
-   - If still running, continue polling.
-4. If max iterations reached, say: "Agent still running after 5 minutes. Use `/agent watch <id>` again or `/agent list` to check."
+   - If errored → update registry to `failed`, write registry. Tell user: "Agent failed. Use `/agent logs <id>` to investigate or `/agent retry <id>` to try again."
+   - If still running (timeout reached) → say: "Agent still running after 5 minutes. Use `/agent watch <id>` again or `/agent list` to check."
 
 ## `rebase <id>`
 
