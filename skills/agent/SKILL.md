@@ -71,21 +71,18 @@ Parse `$ARGUMENTS` and execute the matching command below. Persistent state live
 
 ## `resume <id>`
 
-1. Look up agent in registry (prefix match). Must have status `stopped`/`failed`/`unknown`. Reject if `running`/`completed`/`merged`.
+1. Look up agent in registry (prefix match). Must have status `stopped`/`failed`/`unknown`/`completed`. Reject if `running`/`merged`.
 2. If `branch` is null, say "No branch to resume from. Use `/agent retry <id>` to start fresh." Otherwise, verify branch exists (`git branch --list <branch>`). If not, say "Branch no longer exists. Use `/agent retry <id>` to start fresh."
-3. Read `.claude/agents/<id>-result.txt` if exists — extract any partial progress info.
-4. Get the list of changes already made: `git log main..<branch> --oneline` and `git diff main..<branch> --stat`
-5. Update registry: status → `running`, clear `completedAt`. Write registry.
-6. `TaskCreate` with subject: `Resume: <original description>` (60 chars max), activeForm (present continuous).
-7. Spawn `Agent` with `subagent_type: "general-purpose"`, `run_in_background: true`, `isolation: "worktree"`, prompt:
+3. Read `.claude/agents/<id>-result.txt` — this contains the completion context (branch, files changed, summary of what was done). If missing, fall back to `git log main..<branch> --oneline` (1 command only).
+4. Update registry: status → `running`, clear `completedAt`. Write registry.
+5. `TaskCreate` with subject: `Resume: <original description>` (60 chars max), activeForm (present continuous).
+6. Spawn `Agent` with `subagent_type: "general-purpose"`, `run_in_background: true`, `isolation: "worktree"`, prompt:
 
 ```
 You are an autonomous agent RESUMING previous work. **Task:** {description} | **Agent ID:** {id}
 
-**Previous progress on branch `{branch}`:**
-{git log output}
-{git diff stat output}
-{partial result file contents if any}
+**Previous work summary:**
+{result file contents}
 
 You MUST work through these 5 phases in order. Do not skip phases.
 
@@ -133,6 +130,8 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD)
 COMMIT=$(git rev-parse --short HEAD)
 COMMIT_MSG=$(git log -1 --pretty=%s)
 FILES=$(git diff main..HEAD --name-only 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+DIFF_STAT=$(git diff main..HEAD --stat 2>/dev/null | tail -5)
+COMMIT_LOG=$(git log main..HEAD --oneline 2>/dev/null)
 mkdir -p {repo_absolute_path}/.claude/agents
 cat > {repo_absolute_path}/.claude/agents/{id}-result.txt << RESULT_EOF
 branch: $BRANCH
@@ -140,15 +139,17 @@ commit: $COMMIT
 commitMessage: $COMMIT_MSG
 filesChanged: $FILES
 summary: Resumed and completed task — {short description}
+commitLog: $COMMIT_LOG
+diffStat: $DIFF_STAT
 RESULT_EOF
 
-You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions.
+You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions. NEVER use EnterPlanMode or ask for permission — execute all 5 phases fully.
 ```
 
 **Template handling (same as Spawn):** Read `verifyCommand` and `commitFormat` from the registry entry. If set, include only the `{if ...}` block; otherwise include the `{else}` block. Remove `{if}`/`{else}`/`{end}` markers from the final prompt.
 
-8. Update registry entry's `taskId` from the background Agent task. Write registry.
-9. Tell user: agent `<id>` resumed on branch `<branch>`.
+7. Update registry entry's `taskId` from the background Agent task. Write registry.
+8. Tell user: agent `<id>` resumed on branch `<branch>`.
 
 ## `retry <id>`
 
@@ -304,6 +305,8 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD)
 COMMIT=$(git rev-parse --short HEAD)
 COMMIT_MSG=$(git log -1 --pretty=%s)
 FILES=$(git diff main..HEAD --name-only 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+DIFF_STAT=$(git diff main..HEAD --stat 2>/dev/null | tail -5)
+COMMIT_LOG=$(git log main..HEAD --oneline 2>/dev/null)
 mkdir -p {repo_absolute_path}/.claude/agents
 cat > {repo_absolute_path}/.claude/agents/{id}-result.txt << RESULT_EOF
 branch: $BRANCH
@@ -311,9 +314,11 @@ commit: $COMMIT
 commitMessage: $COMMIT_MSG
 filesChanged: $FILES
 summary: Completed task — {short description}
+commitLog: $COMMIT_LOG
+diffStat: $DIFF_STAT
 RESULT_EOF
 
-You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions.
+You are in an isolated worktree. Make changes freely. Work autonomously — no questions, make reasonable decisions. NEVER use EnterPlanMode or ask for permission — execute all 5 phases fully.
 ```
 
 6. Update registry entry's `taskId` from the background Agent task (NOT TaskCreate). Write registry.
