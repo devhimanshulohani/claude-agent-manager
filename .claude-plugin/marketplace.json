@@ -1,22 +1,18 @@
 {
   "name": "claude-agent-manager",
   "owner": {
-    "name": "Himanshu Lohani",
-    "email": "devhimanshulohani@gmail.com"
+    "name": "Himanshu Lohani"
   },
   "plugins": [
     {
       "name": "agent-manager",
-      "source": ".",
+      "source": "./",
       "description": "Spawn and manage autonomous background agents with persistent state across sessions",
       "version": "2.1.1",
       "author": {
         "name": "Himanshu Lohani"
       },
-      "homepage": "https://github.com/devhimanshulohani/claude-agent-manager#readme",
-      "repository": "https://github.com/devhimanshulohani/claude-agent-manager",
-      "license": "MIT",
-      "tags": ["agents", "background", "worktree", "autonomous", "persistent"]
+      "homepage": "https://github.com/devhimanshulohani/claude-agent-manager#readme"
     }
   ]
 }
