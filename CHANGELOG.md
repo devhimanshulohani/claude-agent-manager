@@ -1,5 +1,43 @@
 # Changelog
 
+## 3.0.0 (2026-04-03)
+
+### Breaking Changes
+
+- Registry version bumped to 2 (auto-migrates from v1)
+- Spawned agents now use custom `agent-manager:worker` subagent type instead of `general-purpose`
+
+### Features
+
+- **Custom worker subagent**: Ships `agents/worker.md` with `background: true`, `isolation: worktree`, `effort: high`, `maxTurns: 200`, `memory: project`, and `disallowedTools`. The 5-phase execution process lives in the worker's system prompt, keeping spawn prompts lean.
+- **Model selection**: `--model haiku|sonnet|opus` flag on spawn/batch to control which model the agent uses
+- **Effort level**: `--effort low|medium|high|max` flag on spawn/batch (registry metadata — worker runs at `high`)
+- **Color tagging**: `--color <color>` flag for visual agent identification in the UI
+- **Max turns**: `--max-turns <N>` flag on spawn/batch (registry metadata — worker default: 200)
+- **SubagentStop hook**: Registry auto-updates when worker agents complete — no more polling needed. Hook at `hooks/hooks.json` calls `bin/update-registry.sh`.
+- **Worker memory**: Worker accumulates codebase patterns and conventions across tasks at `.claude/agent-memory/worker/`
+- **Tool enforcement**: Worker uses `disallowedTools: EnterPlanMode, ExitPlanMode, AskUserQuestion` — enforced at tool level
+- **User config**: Plugin prompts for `default_model` and `default_effort` preferences when enabled
+- **Watch fallback**: `watch` command falls back to result-file polling if TaskOutput is unavailable (preparing for TaskOutput deprecation)
+
+### Improvements
+
+- `effort: high` frontmatter on the skill itself for better quality orchestration
+- Status detection now checks result file first (via Read) before falling back to TaskOutput — follows TaskOutput deprecation guidance
+- `switch` and `list` check result files eagerly to detect completion without TaskOutput
+- Spawn prompt dramatically simplified — phases are in the worker subagent, only task-specific details in the prompt
+- `retry` preserves `model`, `effort`, `color`, and `maxTurns` from the original agent
+- `batch` supports `--model`, `--effort`, and `--max-turns` flags applied to all agents
+- `history` and `switch` show model info when set
+- `stats` shows model usage breakdown
+- Plugin ships `bin/` executables for hook scripts
+- Ask-once default branch detection — works with main, master, develop, or any branch name
+- Registry v1→v2 auto-migration preserves existing agent history
+- Atomic registry writes (write to .tmp then rename) prevent corruption
+- Pre-flight git repo check with clear error message
+- Flag validation rejects invalid `--model`, `--color`, `--effort`, `--max-turns` values
+- Hook script rewritten with `node -e` for reliable JSON parsing and file locking
+
 ## 2.1.1 (2026-03-05)
 
 ### Fixes

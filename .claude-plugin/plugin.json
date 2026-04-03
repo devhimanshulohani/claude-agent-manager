@@ -1,10 +1,20 @@
 {
   "name": "agent-manager",
   "description": "Spawn and manage autonomous background agents with persistent state across sessions",
-  "version": "2.1.4",
+  "version": "3.0.0",
   "author": { "name": "Himanshu Lohani" },
   "homepage": "https://github.com/devhimanshulohani/claude-agent-manager#readme",
   "repository": "https://github.com/devhimanshulohani/claude-agent-manager",
   "license": "MIT",
-  "keywords": ["agents", "background", "worktree", "autonomous", "persistent"]
+  "keywords": ["agents", "background", "worktree", "autonomous", "persistent", "subagent", "parallel"],
+  "userConfig": {
+    "default_model": {
+      "description": "Default model for spawned agents (haiku, sonnet, opus). Leave empty to inherit from session.",
+      "sensitive": false
+    },
+    "default_effort": {
+      "description": "Default effort level for spawned agents (low, medium, high, max). Leave empty for high.",
+      "sensitive": false
+    }
+  }
 }

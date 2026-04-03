@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SubagentStop": [
+      {
+        "matcher": "agent-manager:worker",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/update-registry.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
